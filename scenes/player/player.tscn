@@ -1,21 +1,33 @@
 [gd_scene format=3 uid="uid://ktt34fg2yng2"]
 
 [ext_resource type="PackedScene" uid="uid://dxa7mqv6x84ne" path="res://assets/characters/Mannequin_F.glb" id="1_8afob"]
-[ext_resource type="Script" path="res://scenes/player/player.gd" id="2_player"]
+[ext_resource type="Script" uid="uid://p1ddsqveqlmo" path="res://scenes/player/player.gd" id="2_player"]
+[ext_resource type="Script" uid="uid://cvmrj6kehixxw" path="res://scripts/player/odm_controller.gd" id="3_odm"]
+[ext_resource type="PackedScene" path="res://scenes/props/odm_gear.tscn" id="4_gear"]
+[ext_resource type="PackedScene" uid="uid://bodvla7hglonk" path="res://scenes/player/player_audio.tscn" id="5_audio"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_xd2r4"]
 radius = 0.34814453
 height = 1.8745117
 
-[node name="Player" type="CharacterBody3D" unique_id=1449931978]
+[node name="Player" type="CharacterBody3D" unique_id=72584683 groups=["player"]]
 script = ExtResource("2_player")
 
-[node name="Model" parent="." unique_id=890154176 instance=ExtResource("1_8afob")]
+[node name="Model" parent="." unique_id=990863049 instance=ExtResource("1_8afob")]
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="Model/Armature" parent_id_path=PackedInt32Array(890154176, 1717710572) index="1" unique_id=1337338086]
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Model/Armature" parent_id_path=PackedInt32Array(990863049, 1632481274) index="1" unique_id=712710957]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1412900378]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=212995564]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.93436825, 0)
 shape = SubResource("CapsuleShape3D_xd2r4")
+
+[node name="ODMGear" parent="." unique_id=319352239 instance=ExtResource("4_gear")]
+
+[node name="ODMController" type="Node" parent="." unique_id=1622442634]
+script = ExtResource("3_odm")
+reel_speed = 5.0
+gas_reel_drain = 0.0
+
+[node name="PlayerAudio" parent="." unique_id=512626331 instance=ExtResource("5_audio")]
 
 [editable path="Model"]

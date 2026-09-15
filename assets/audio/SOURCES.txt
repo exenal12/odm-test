@@ -1,0 +1,6 @@
+Placeholder procedural WAVs for prototyping.
+Replace with CC0 packs when convenient:
+- Kenney Impact Sounds: https://kenney.nl/assets/impact-sounds (footsteps, impacts)
+- Kenney Interface Sounds: https://opengameart.org/content/interface-sounds (UI)
+- OwlishMedia Sound Effects Pack: https://opengameart.org/content/sound-effects-pack (foley/ambience)
+Drop real ODM gear recordings into assets/audio/odm/ using the same filenames.

@@ -39,6 +39,9 @@ extends CharacterBody3D
 
 @onready var animation_player: AnimationPlayer = $Model/Armature/AnimationPlayer
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
+@onready var odm: ODMController = $ODMController
+@onready var odm_gear: Node3D = $ODMGear
+@onready var player_audio: Node = $PlayerAudio
 
 enum SlidePhase { NONE, START, LOOP, EXIT }
 enum AirPhase { NONE, START, FALL, LAND }
@@ -57,6 +60,7 @@ var _land_timer: float = 0.0
 var _standing_capsule_height: float = 1.8745117
 var _standing_capsule_radius: float = 0.34814453
 var _standing_shape_y: float = 0.93436825
+var _hud: Node
 
 const LIB_UAL1: StringName = &"ual1"
 const LIB_UAL2: StringName = &"ual2"
@@ -64,52 +68,115 @@ const CROUCH_HEIGHT_SCALE: float = 0.6
 
 
 func _ready() -> void:
+	add_to_group("player")
 	_ensure_input_actions()
-	_resolve_camera_nodes()
 	_cache_capsule_defaults()
 	_setup_animations()
+	_setup_odm()
 	if animation_player:
 		animation_player.animation_finished.connect(_on_animation_finished)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# Camera / pcam are later siblings in world.tscn; resolve after the tree is ready.
+	call_deferred("_resolve_camera_nodes")
 
 
-func _unhandled_input(event: InputEvent) -> void:
+func _setup_odm() -> void:
+	if odm == null:
+		return
+	odm.ensure_input_actions()
+	odm.setup(self, _camera, odm_gear)
+	if player_audio and player_audio.has_method("bind_odm"):
+		player_audio.bind_odm(odm)
+	call_deferred("_bind_hud")
+
+
+func _bind_hud() -> void:
+	_hud = get_tree().get_first_node_in_group("odm_hud")
+	if _hud == null:
+		_hud = get_tree().current_scene.get_node_or_null("ODMHUD")
+	if _hud and _hud.has_method("bind_odm"):
+		_hud.bind_odm(odm)
+
+
+func _input(event: InputEvent) -> void:
+	# Use _input (not _unhandled_input) so HUD controls at screen center cannot eat look.
 	if event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	if event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
 
-	if _pcam == null:
-		return
-	if _pcam.get_follow_mode() != PhantomCamera3D.FollowMode.THIRD_PERSON:
-		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if _pcam == null:
+			_resolve_camera_nodes()
+		if _pcam == null:
+			return
+		if _pcam.get_follow_mode() != PhantomCamera3D.FollowMode.THIRD_PERSON:
+			return
 		var rotation_degrees := _pcam.get_third_person_rotation_degrees()
 		rotation_degrees.x -= event.relative.y * mouse_sensitivity
 		rotation_degrees.x = clampf(rotation_degrees.x, min_pitch, max_pitch)
 		rotation_degrees.y -= event.relative.x * mouse_sensitivity
 		rotation_degrees.y = wrapf(rotation_degrees.y, 0.0, 360.0)
 		_pcam.set_third_person_rotation_degrees(rotation_degrees)
+		get_viewport().set_input_as_handled()
 
 
 func _physics_process(delta: float) -> void:
+	if _camera == null or _pcam == null:
+		_resolve_camera_nodes()
+		if odm and _camera:
+			odm.set_camera(_camera)
+
+	var odm_active := odm != null and odm.is_active()
+
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 
-	_update_stance_state()
-
-	if Input.is_action_just_pressed("jump") and is_on_floor() and not _is_sliding and _air_phase != AirPhase.LAND:
-		_start_jump()
-
-	if _is_sliding:
-		_process_slide(delta)
+	if odm_active:
+		# Cancel slide if we leave grounded control for ODM.
+		if _is_sliding:
+			_finish_slide()
+		odm.physics_tick(delta)
+		_face_velocity(delta)
 	else:
-		_process_move(delta)
+		_update_stance_state()
+
+		if Input.is_action_just_pressed("jump") and is_on_floor() and not _is_sliding and _air_phase != AirPhase.LAND:
+			_start_jump()
+
+		if _is_sliding:
+			_process_slide(delta)
+		else:
+			_process_move(delta)
+
+		# Still allow firing hooks while grounded; physics applied next frame if attached.
+		if odm:
+			odm.physics_tick(delta)
 
 	move_and_slide()
 	_update_air_state()
 	_update_animation()
+	_update_audio(delta)
+
+
+func _face_velocity(delta: float) -> void:
+	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	if horizontal.length() < 0.4:
+		return
+	var target_yaw := atan2(horizontal.x, horizontal.z)
+	rotation.y = lerp_angle(rotation.y, target_yaw, turn_speed * delta)
+
+
+func _update_audio(delta: float) -> void:
+	if player_audio == null:
+		return
+	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
+	var moving := horizontal_speed > walk_speed_threshold and not (odm != null and odm.is_hooked())
+	var sprinting := Input.is_action_pressed("sprint") and not _is_crouching
+	if player_audio.has_method("play_footsteps"):
+		player_audio.play_footsteps(delta, moving, sprinting, is_on_floor() and not _is_sliding)
 
 
 func _start_jump() -> void:
@@ -135,8 +202,11 @@ func _begin_land() -> void:
 	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
 	var wants_move := Input.get_vector("move_left", "move_right", "move_forward", "move_back") != Vector2.ZERO
 
+	if player_audio and player_audio.has_method("play_land"):
+		player_audio.play_land()
+
 	# Keep momentum: no dedicated "land into run" clip in UAL, so blend straight to locomotion.
-	if horizontal_speed >= moving_land_speed_threshold or wants_move:
+	if horizontal_speed >= moving_land_speed_threshold or wants_move or (odm != null and odm.is_hooked()):
 		_finish_land()
 		return
 
@@ -371,6 +441,8 @@ func _resolve_camera_nodes() -> void:
 	_camera = get_viewport().get_camera_3d()
 	if _camera == null:
 		_camera = get_tree().get_first_node_in_group("player_camera") as Camera3D
+	if odm and _camera:
+		odm.set_camera(_camera)
 
 
 func _setup_animations() -> void:
@@ -444,6 +516,13 @@ func _force_oneshot(library_name: StringName, clip_name: StringName) -> void:
 
 func _update_animation() -> void:
 	if animation_player == null:
+		return
+
+	# While hooked / boosting in air, reuse fall clip.
+	if odm != null and odm.is_active() and not is_on_floor():
+		if _air_phase == AirPhase.NONE:
+			_air_phase = AirPhase.FALL
+		_play_library_animation(LIB_UAL1, jump_fall_animation)
 		return
 
 	# Slide / air clips are driven by their own state machines.

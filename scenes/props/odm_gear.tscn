@@ -1,0 +1,50 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/player/odm_hook.gd" id="1_hook"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_hip"]
+size = Vector3(0.35, 0.22, 0.18)
+
+[sub_resource type="StandardMaterial3D" id="Mat_hip"]
+albedo_color = Color(0.18, 0.18, 0.2, 1)
+metallic = 0.6
+roughness = 0.35
+
+[sub_resource type="BoxMesh" id="BoxMesh_tank"]
+size = Vector3(0.2, 0.45, 0.2)
+
+[sub_resource type="StandardMaterial3D" id="Mat_tank"]
+albedo_color = Color(0.25, 0.28, 0.32, 1)
+metallic = 0.7
+roughness = 0.3
+
+[node name="ODMGear" type="Node3D"]
+
+[node name="HipBox" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0.08)
+mesh = SubResource("BoxMesh_hip")
+surface_material_override/0 = SubResource("Mat_hip")
+
+[node name="GasTankL" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.18, 1.05, -0.12)
+mesh = SubResource("BoxMesh_tank")
+surface_material_override/0 = SubResource("Mat_tank")
+
+[node name="GasTankR" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.18, 1.05, -0.12)
+mesh = SubResource("BoxMesh_tank")
+surface_material_override/0 = SubResource("Mat_tank")
+
+[node name="LeftSocket" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.28, 0.95, 0.05)
+
+[node name="RightSocket" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.28, 0.95, 0.05)
+
+[node name="LeftHook" type="Node3D" parent="."]
+script = ExtResource("1_hook")
+is_left = true
+
+[node name="RightHook" type="Node3D" parent="."]
+script = ExtResource("1_hook")
+is_left = false

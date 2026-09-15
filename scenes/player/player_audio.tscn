@@ -1,0 +1,27 @@
+[gd_scene format=3 uid="uid://bodvla7hglonk"]
+
+[ext_resource type="Script" path="res://scripts/player/player_audio.gd" id="1_audio"]
+
+[node name="PlayerAudio" type="Node3D"]
+script = ExtResource("1_audio")
+
+[node name="Footstep" type="AudioStreamPlayer3D" parent="."]
+bus = &"SFX"
+max_distance = 28.0
+
+[node name="Land" type="AudioStreamPlayer3D" parent="."]
+bus = &"SFX"
+max_distance = 36.0
+volume_db = 2.0
+
+[node name="ODM" type="AudioStreamPlayer3D" parent="."]
+bus = &"SFX"
+max_distance = 40.0
+
+[node name="Boost" type="AudioStreamPlayer3D" parent="."]
+bus = &"SFX"
+max_distance = 40.0
+volume_db = -2.0
+
+[node name="UI" type="AudioStreamPlayer" parent="."]
+bus = &"UI"

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "godot-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@yanhuifair/godot-mcp",
+        "-p",
+        "/var/home/bazzite/odm-test",
+        "-g",
+        "/home/bazzite/.local/bin/godot"
+      ]
+    }
+  }
+}

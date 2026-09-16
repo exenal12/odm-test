@@ -116,5 +116,6 @@ grow_vertical = 0
 mouse_filter = 2
 theme_override_font_sizes/font_size = 13
 text = "Q/LMB Left Hook  |  E/RMB Right Hook
-Shift Boost (air/hooked)  |  Hold to reel"
+Shift Boost (air/hooked)  |  Hold to reel
+V Cycle camera (R / L / Overhead)"
 horizontal_alignment = 2

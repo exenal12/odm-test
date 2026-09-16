@@ -27,7 +27,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
 [node name="Camera3D" type="Camera3D" parent="." unique_id=1483402746 groups=["player_camera"]]
 unique_name_in_owner = true
 physics_interpolation_mode = 1
-transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 0, 3.250142, 3.2878046)
+transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 1, 2.750142, 3.2878046)
 top_level = true
 current = true
 
@@ -55,13 +55,13 @@ align_rotation_with_view = Callable()
 
 [node name="LeftShoulderCam" type="Node3D" parent="." unique_id=1539295106 node_paths=PackedStringArray("follow_target") groups=["player_pcam"]]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 0, 3.250142, 3.2878046)
+transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, -1, 2.750142, 3.2878046)
 script = ExtResource("3_v5dby")
 priority = 10
 follow_mode = 6
 follow_target = NodePath("../Player")
 tween_resource = SubResource("Resource_bq33v")
-follow_offset = Vector3(0, 2, 0)
+follow_offset = Vector3(-1, 1.5, 0)
 follow_damping = true
 follow_distance = 3.5
 vertical_rotation_offset = 0.35
@@ -72,13 +72,13 @@ align_rotation_with_view = Callable()
 
 [node name="RightShoulderCam" type="Node3D" parent="." unique_id=1580240888 node_paths=PackedStringArray("follow_target") groups=["player_pcam"]]
 unique_name_in_owner = true
-transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 0, 3.250142, 3.2878046)
+transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 1, 2.750142, 3.2878046)
 script = ExtResource("3_v5dby")
 priority = 10
 follow_mode = 6
 follow_target = NodePath("../Player")
 tween_resource = SubResource("Resource_bq33v")
-follow_offset = Vector3(0, 2, 0)
+follow_offset = Vector3(1, 1.5, 0)
 follow_damping = true
 follow_distance = 3.5
 vertical_rotation_offset = 0.35

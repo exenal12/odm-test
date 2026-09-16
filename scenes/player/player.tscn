@@ -25,7 +25,7 @@ shape = SubResource("CapsuleShape3D_xd2r4")
 
 [node name="ODMController" type="Node" parent="." unique_id=1622442634]
 script = ExtResource("3_odm")
-reel_speed = 5.0
+reel_speed = 8.0
 gas_reel_drain = 0.0
 
 [node name="PlayerAudio" parent="." unique_id=512626331 instance=ExtResource("5_audio")]

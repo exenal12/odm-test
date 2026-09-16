@@ -12,6 +12,15 @@ extends CharacterBody3D
 @export var mouse_sensitivity: float = 0.08
 @export var min_pitch: float = -60.0
 @export var max_pitch: float = 45.0
+@export var overhead_min_pitch: float = -85.0
+@export var overhead_max_pitch: float = 10.0
+@export var active_pcam_priority: int = 10
+## Cycle order: right shoulder → left shoulder → overhead.
+@export var camera_cycle_names: PackedStringArray = PackedStringArray([
+	"RightShoulderCam",
+	"LeftShoulderCam",
+	"OverheadCam",
+])
 
 @export_file("*.glb") var ual1_path: String = "res://assets/anims/UAL1_Standard.glb"
 @export_file("*.glb") var ual2_path: String = "res://assets/anims/UAL2_Standard.glb"
@@ -48,6 +57,9 @@ enum AirPhase { NONE, START, FALL, LAND }
 
 var _camera: Camera3D
 var _pcam: PhantomCamera3D
+var _pcams: Array[PhantomCamera3D] = []
+var _pcam_local_offsets: Array[Vector3] = []
+var _pcam_index: int = 0
 var _current_anim: StringName = &""
 var _is_crouching: bool = false
 var _is_sliding: bool = false
@@ -107,6 +119,11 @@ func _input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		return
 
+	if event.is_action_pressed("camera_cycle"):
+		_cycle_camera()
+		get_viewport().set_input_as_handled()
+		return
+
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if _pcam == null:
 			_resolve_camera_nodes()
@@ -114,9 +131,11 @@ func _input(event: InputEvent) -> void:
 			return
 		if _pcam.get_follow_mode() != PhantomCamera3D.FollowMode.THIRD_PERSON:
 			return
+		var pitch_min := overhead_min_pitch if _is_overhead_camera() else min_pitch
+		var pitch_max := overhead_max_pitch if _is_overhead_camera() else max_pitch
 		var rotation_degrees := _pcam.get_third_person_rotation_degrees()
 		rotation_degrees.x -= event.relative.y * mouse_sensitivity
-		rotation_degrees.x = clampf(rotation_degrees.x, min_pitch, max_pitch)
+		rotation_degrees.x = clampf(rotation_degrees.x, pitch_min, pitch_max)
 		rotation_degrees.y -= event.relative.x * mouse_sensitivity
 		rotation_degrees.y = wrapf(rotation_degrees.y, 0.0, 360.0)
 		_pcam.set_third_person_rotation_degrees(rotation_degrees)
@@ -155,6 +174,7 @@ func _physics_process(delta: float) -> void:
 		if odm:
 			odm.physics_tick(delta)
 
+	_update_camera_follow_offsets()
 	move_and_slide()
 	_update_air_state()
 	_update_animation()
@@ -437,12 +457,107 @@ func _camera_relative_direction(input_dir: Vector2) -> Vector3:
 
 
 func _resolve_camera_nodes() -> void:
-	_pcam = get_tree().get_first_node_in_group("player_pcam") as PhantomCamera3D
 	_camera = get_viewport().get_camera_3d()
 	if _camera == null:
 		_camera = get_tree().get_first_node_in_group("player_camera") as Camera3D
 	if odm and _camera:
 		odm.set_camera(_camera)
+
+	_pcams.clear()
+	_pcam_local_offsets.clear()
+	var scene := get_tree().current_scene
+	if scene:
+		for cam_name in camera_cycle_names:
+			var node := scene.get_node_or_null(NodePath(cam_name)) as PhantomCamera3D
+			if node:
+				_pcams.append(node)
+				# Phantom Camera applies follow_offset in world space. Capture
+				# the authored shoulder width and height; the offset is rebuilt
+				# from the viewport direction below.
+				_pcam_local_offsets.append(node.follow_offset)
+
+	# Fallback: whatever is in the group, sorted by name for stability.
+	if _pcams.is_empty():
+		var found: Array = get_tree().get_nodes_in_group("player_pcam")
+		found.sort_custom(func(a: Node, b: Node) -> bool: return String(a.name) < String(b.name))
+		for node in found:
+			if node is PhantomCamera3D:
+				_pcams.append(node)
+				_pcam_local_offsets.append(node.follow_offset)
+
+	if _pcams.is_empty():
+		_pcam = null
+		return
+
+	_pcam_index = clampi(_pcam_index, 0, _pcams.size() - 1)
+	_set_active_pcam(_pcam_index, false)
+	_update_camera_follow_offsets()
+
+
+func _cycle_camera() -> void:
+	if _pcams.is_empty():
+		_resolve_camera_nodes()
+	if _pcams.size() < 2:
+		return
+	_set_active_pcam((_pcam_index + 1) % _pcams.size(), true)
+
+
+func _set_active_pcam(index: int, copy_rotation: bool) -> void:
+	if _pcams.is_empty():
+		return
+	index = clampi(index, 0, _pcams.size() - 1)
+
+	var previous_rotation := Vector3.ZERO
+	var had_previous := _pcam != null and is_instance_valid(_pcam)
+	if copy_rotation and had_previous:
+		previous_rotation = _pcam.get_third_person_rotation_degrees()
+
+	for i in _pcams.size():
+		_pcams[i].priority = active_pcam_priority if i == index else 0
+
+	_pcam_index = index
+	_pcam = _pcams[index]
+
+	if copy_rotation and had_previous:
+		var pitch_min := overhead_min_pitch if _is_overhead_camera() else min_pitch
+		var pitch_max := overhead_max_pitch if _is_overhead_camera() else max_pitch
+		previous_rotation.x = clampf(previous_rotation.x, pitch_min, pitch_max)
+		_pcam.set_third_person_rotation_degrees(previous_rotation)
+
+
+func _update_camera_follow_offsets() -> void:
+	if _pcams.size() != _pcam_local_offsets.size() or _camera == null:
+		return
+
+	# follow_offset is world-space in this Phantom Camera version. Use the
+	# viewport's horizontal right vector so a "right shoulder" camera stays
+	# on the correct side of the view even when the player turns around.
+	var viewport_right := _camera.global_transform.basis.x
+	viewport_right.y = 0.0
+	if viewport_right.length_squared() < 0.001:
+		return
+	viewport_right = viewport_right.normalized()
+
+	for i in _pcams.size():
+		var authored_offset := _pcam_local_offsets[i]
+		var world_offset := Vector3.UP * authored_offset.y
+		var shoulder_width := absf(authored_offset.x)
+
+		if _pcams[i].name == &"RightShoulderCam":
+			# The follow target is shifted toward the camera. The opposite
+			# viewport-right direction places the camera over the model's
+			# right shoulder.
+			world_offset -= viewport_right * shoulder_width
+		elif _pcams[i].name == &"LeftShoulderCam":
+			world_offset += viewport_right * shoulder_width
+		else:
+			world_offset += viewport_right * authored_offset.x
+
+		_pcams[i].follow_offset = world_offset
+
+
+func _is_overhead_camera() -> bool:
+	return _pcam != null and _pcam.name == &"OverheadCam"
 
 
 func _setup_animations() -> void:
@@ -579,6 +694,7 @@ func _ensure_input_actions() -> void:
 	_add_key_action("jump", KEY_SPACE)
 	_add_key_action("sprint", KEY_SHIFT)
 	_add_key_action("crouch", KEY_CTRL)
+	_add_key_action("camera_cycle", KEY_V)
 
 
 func _add_key_action(action: StringName, keycode: Key) -> void:

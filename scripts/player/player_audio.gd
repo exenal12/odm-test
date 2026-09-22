@@ -1,7 +1,9 @@
 extends Node
 ## Plays locomotion + ODM SFX. Swap files under assets/audio/ freely.
 
+## Time between normal footsteps while walking or jogging.
 @export var footstep_interval: float = 0.38
+## Multiplier applied to the footstep interval while sprinting.
 @export var sprint_footstep_scale: float = 0.7
 
 @onready var footstep_player: AudioStreamPlayer3D = $Footstep
@@ -20,11 +22,13 @@ var _gas_boost: AudioStream
 var _land: AudioStream
 var _ui_click: AudioStream
 
-
+## Loads all configured audio resources after the node enters the scene tree.
 func _ready() -> void:
 	_load_streams()
 
 
+## Loads available footstep variations and optional landing, hook, reel,
+## boost, and UI audio streams.
 func _load_streams() -> void:
 	for i in 5:
 		var path := "res://assets/audio/sfx/footstep_concrete_%03d.wav" % i
@@ -39,12 +43,14 @@ func _load_streams() -> void:
 	_ui_click = _load_stream("res://assets/audio/ui/click_001.wav")
 
 
+## Loads one audio resource when it exists, returning null for optional files.
 func _load_stream(path: String) -> AudioStream:
 	if ResourceLoader.exists(path):
 		return load(path) as AudioStream
 	return null
 
 
+## Connects ODM signals to the matching player sound effects.
 func bind_odm(odm: ODMController) -> void:
 	if odm == null:
 		return
@@ -54,6 +60,8 @@ func bind_odm(odm: ODMController) -> void:
 	odm.boosted.connect(_on_boosted)
 
 
+## Plays randomized footsteps at a stance-dependent interval while grounded
+## and moving.
 func play_footsteps(delta: float, moving: bool, sprinting: bool, on_floor: bool) -> void:
 	if not on_floor or not moving or _footstep_streams.is_empty():
 		_footstep_timer = 0.0
@@ -67,6 +75,7 @@ func play_footsteps(delta: float, moving: bool, sprinting: bool, on_floor: bool)
 		footstep_player.play()
 
 
+## Plays the landing sound when a landing stream is available.
 func play_land() -> void:
 	if _land == null:
 		return
@@ -74,6 +83,7 @@ func play_land() -> void:
 	land_player.play()
 
 
+## Plays the configured UI click sound.
 func play_ui_click() -> void:
 	if _ui_click == null:
 		return
@@ -81,18 +91,22 @@ func play_ui_click() -> void:
 	ui_player.play()
 
 
+## Responds to a hook-fired signal with the hook-launch sound.
 func _on_hook_fired(_is_left: bool) -> void:
 	_play_odm(_hook_fire)
 
 
+## Responds to a hook-latched signal with the latch sound.
 func _on_hook_latched(_is_left: bool) -> void:
 	_play_odm(_hook_latch)
 
 
+## Responds to a hook-detached signal with the detach sound.
 func _on_hook_detached(_is_left: bool) -> void:
 	_play_odm(_hook_detach)
 
 
+## Starts the boost sound once per boost activation rather than every frame.
 func _on_boosted() -> void:
 	if _gas_boost == null:
 		return
@@ -101,6 +115,7 @@ func _on_boosted() -> void:
 		boost_player.play()
 
 
+## Plays an ODM sound through the shared positional ODM audio player.
 func _play_odm(stream: AudioStream) -> void:
 	if stream == null:
 		return

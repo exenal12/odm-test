@@ -5,13 +5,16 @@ extends Node3D
 const LAYER_WORLD := 1
 const LAYER_GRAPPLE := 2
 
+## Width and depth of the generated ground plane.
 @export var floor_size: Vector2 = Vector2(120, 80)
 
 
+## Builds the complete greybox course once the scene enters the tree.
 func _ready() -> void:
 	_build()
 
 
+## Clears any previous generated geometry and rebuilds every traversal zone.
 func _build() -> void:
 	_clear_generated()
 	_add_zone_markers()
@@ -27,6 +30,7 @@ func _build() -> void:
 	_build_gas_stations()
 
 
+## Replaces the generated container so rebuilding never duplicates geometry.
 func _clear_generated() -> void:
 	var existing := get_node_or_null("Generated")
 	if existing:
@@ -36,10 +40,12 @@ func _clear_generated() -> void:
 	add_child(gen)
 
 
+## Returns the node that owns all procedurally generated playground content.
 func _generated() -> Node3D:
 	return $Generated as Node3D
 
 
+## Creates named markers that identify the course's major testing areas.
 func _add_zone_markers() -> void:
 	var markers := {
 		"Spawn": Vector3(0, 0.1, 0),
@@ -62,6 +68,7 @@ func _add_zone_markers() -> void:
 		root.add_child(marker)
 
 
+## Adds the large non-grappleable floor beneath the entire course.
 func _build_ground() -> void:
 	_box(
 		Vector3(0, -0.5, 0),
@@ -72,6 +79,7 @@ func _build_ground() -> void:
 	)
 
 
+## Creates stepped rooftop platforms and a distant landing pad for jump tests.
 func _build_jump_rooftops() -> void:
 	var parent := _section("JumpRooftops")
 	# Stepping platforms with gaps.
@@ -85,6 +93,7 @@ func _build_jump_rooftops() -> void:
 	_box(Vector3(x + 2.0, 2.0, 0), Vector3(6.0, 4.0, 6.0), true, Color(0.5, 0.4, 0.3), "LandingPad", parent)
 
 
+## Builds a low-ceiling tunnel intended to showcase crouching and sliding.
 func _build_slide_tunnel() -> void:
 	var parent := _section("SlideTunnel")
 	# Floor path
@@ -95,6 +104,7 @@ func _build_slide_tunnel() -> void:
 	_box(Vector3(-16, 0.7, 9.8), Vector3(10, 1.4, 0.4), true, Color(0.4, 0.4, 0.45), "TunnelWallR", parent)
 
 
+## Adds stepped ramps and elevated ledges for jump and movement testing.
 func _build_ramps_and_ledges() -> void:
 	var parent := _section("Ramps")
 	_box(Vector3(-2, 1.0, -14), Vector3(4, 0.4, 8), false, Color(0.5, 0.48, 0.4), "RampBase", parent)
@@ -107,6 +117,7 @@ func _build_ramps_and_ledges() -> void:
 	_box(Vector3(6, 2.5, -20), Vector3(3, 5, 1), true, Color(0.45, 0.5, 0.55), "LedgeWall", parent)
 
 
+## Creates tall grappleable towers and a midair platform for ODM swings.
 func _build_towers() -> void:
 	var parent := _section("Towers")
 	_box(Vector3(32, 10, -8), Vector3(4, 20, 4), true, Color(0.4, 0.55, 0.65), "TowerA", parent)
@@ -116,6 +127,7 @@ func _build_towers() -> void:
 	_box(Vector3(36, 8, -11), Vector3(3, 0.5, 3), true, Color(0.6, 0.55, 0.4), "TowerPad", parent)
 
 
+## Builds the open atrium walls and pillars for long-distance hook tests.
 func _build_atrium() -> void:
 	var parent := _section("Atrium")
 	# Open courtyard walls for long dual-hook swings
@@ -128,6 +140,7 @@ func _build_atrium() -> void:
 			_box(Vector3(px, 10, pz), Vector3(2.5, 20, 2.5), true, Color(0.5, 0.45, 0.4), "AtriumPillar", parent)
 
 
+## Creates a narrow street with tall walls and overhead obstacles.
 func _build_narrow_street() -> void:
 	var parent := _section("NarrowStreet")
 	_box(Vector3(22, 6, 25), Vector3(1.5, 12, 20), true, Color(0.4, 0.4, 0.45), "StreetWallL", parent)
@@ -137,6 +150,7 @@ func _build_narrow_street() -> void:
 	_box(Vector3(25, 8, 30), Vector3(5, 0.4, 3), true, Color(0.55, 0.5, 0.45), "StreetOverhang2", parent)
 
 
+## Adds the ladder-like ledge strips used for traversal experiments.
 func _build_climb_stubs() -> void:
 	var parent := _section("ClimbStubs")
 	# Ladder-like ledge strips (geometry only — climb logic later)
@@ -146,6 +160,7 @@ func _build_climb_stubs() -> void:
 	_box(Vector3(-30, 7.5, -5), Vector3(3, 0.4, 3), true, Color(0.6, 0.5, 0.35), "ClimbTop", parent)
 
 
+## Adds tall flat panels for wall-run and grapple movement experiments.
 func _build_wallrun_panels() -> void:
 	var parent := _section("WallrunPanels")
 	# Tall vertical panels (geometry only — wallrun later)
@@ -153,6 +168,7 @@ func _build_wallrun_panels() -> void:
 	_box(Vector3(-34, 3.5, 22), Vector3(0.4, 7, 10), true, Color(0.32, 0.5, 0.48), "WallrunB", parent)
 
 
+## Places gas refill stations near the spawn, towers, and atrium zones.
 func _build_gas_stations() -> void:
 	var parent := _section("GasStations")
 	_make_gas_refill(Vector3(8, 0.5, 8), parent, "GasRefill_Spawn")
@@ -160,6 +176,7 @@ func _build_gas_stations() -> void:
 	_make_gas_refill(Vector3(-5, 0.5, 28), parent, "GasRefill_Atrium")
 
 
+## Creates a refill Area3D with collision monitoring and a glowing visual orb.
 func _make_gas_refill(pos: Vector3, parent: Node, station_name: String = "GasRefill") -> void:
 	var script := load("res://scripts/world/gas_refill.gd") as GDScript
 	var area: Area3D = script.new() as Area3D
@@ -189,6 +206,7 @@ func _make_gas_refill(pos: Vector3, parent: Node, station_name: String = "GasRef
 	parent.add_child(area)
 
 
+## Creates and registers a named generated section for course geometry.
 func _section(section_name: String) -> Node3D:
 	var node := Node3D.new()
 	node.name = section_name
@@ -196,6 +214,8 @@ func _section(section_name: String) -> Node3D:
 	return node
 
 
+## Creates a box mesh and matching collision body, optionally marking it as
+## grappleable on both the world and grapple physics layers.
 func _box(
 	pos: Vector3,
 	size: Vector3,

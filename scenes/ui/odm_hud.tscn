@@ -1,6 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://scripts/ui/odm_hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://scripts/ui/reel_icon.gd" id="2_reel_icon"]
 
 [node name="ODMHUD" type="CanvasLayer" groups=["odm_hud"]]
 layer = 10
@@ -14,6 +15,36 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+
+[node name="ReelPanel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -132.0
+offset_right = 164.0
+offset_bottom = -96.0
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="ReelRow" type="HBoxContainer" parent="Root/ReelPanel"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="ReelIcon" type="Control" parent="Root/ReelPanel/ReelRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+mouse_filter = 2
+script = ExtResource("2_reel_icon")
+
+[node name="ReelStatus" type="Label" parent="Root/ReelPanel/ReelRow"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+text = "REEL ON"
 
 [node name="GasPanel" type="PanelContainer" parent="Root"]
 layout_mode = 1
@@ -108,7 +139,7 @@ anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = -360.0
-offset_top = -96.0
+offset_top = -116.0
 offset_right = -24.0
 offset_bottom = -24.0
 grow_horizontal = 0
@@ -116,6 +147,7 @@ grow_vertical = 0
 mouse_filter = 2
 theme_override_font_sizes/font_size = 13
 text = "Q/LMB Left Hook  |  E/RMB Right Hook
-Shift Boost (air/hooked)  |  Hold to reel
-V Cycle camera (R / L / Overhead)"
+Shift Boost (air/hooked)  |  R Toggle reel
+V Cycle camera
+1 Debug map  |  2 Giant forest"
 horizontal_alignment = 2

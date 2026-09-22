@@ -1,10 +1,10 @@
-[gd_scene format=3 uid="uid://cdybxib3tb5yq"]
+[gd_scene format=3]
 
 [ext_resource type="PackedScene" uid="uid://ktt34fg2yng2" path="res://scenes/player/player.tscn" id="1_dphjl"]
 [ext_resource type="Script" uid="uid://bd046eokvcnu2" path="res://addons/phantom_camera/scripts/phantom_camera_host/phantom_camera_host.gd" id="2_6m72w"]
 [ext_resource type="Script" uid="uid://csjccrhj5wnx7" path="res://addons/phantom_camera/scripts/phantom_camera/phantom_camera_3d.gd" id="3_v5dby"]
 [ext_resource type="Script" uid="uid://8umksf8e80fw" path="res://addons/phantom_camera/scripts/resources/tween_resource.gd" id="4_t5ptc"]
-[ext_resource type="PackedScene" uid="uid://7ynmyu46emb5" path="res://scenes/world/traversal_playground.tscn" id="5_play"]
+[ext_resource type="PackedScene" path="res://scenes/world/giant_forest.tscn" id="5_play"]
 [ext_resource type="PackedScene" path="res://scenes/ui/odm_hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://scripts/world/map_switcher.gd" id="7_switch"]
 
@@ -14,14 +14,29 @@ duration = 0.3
 transition = 2
 ease = 1
 
+[sub_resource type="Environment" id="Environment_forest"]
+background_mode = 1
+background_color = Color(0.23, 0.34, 0.28, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.35, 0.44, 0.36, 1)
+ambient_light_energy = 0.7
+fog_enabled = true
+fog_light_color = Color(0.22, 0.34, 0.27, 1)
+fog_density = 0.012
+
 [node name="World" type="Node3D" unique_id=1895184945]
 script = ExtResource("7_switch")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_forest")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1497079734]
 transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 8, 0)
 shadow_enabled = true
+light_color = Color(0.78, 0.91, 0.72, 1)
+light_energy = 0.8
 
-[node name="TraversalPlayground" parent="." unique_id=402672601 instance=ExtResource("5_play")]
+[node name="GiantForest" parent="." instance=ExtResource("5_play")]
 
 [node name="Player" parent="." unique_id=821261460 instance=ExtResource("1_dphjl")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)

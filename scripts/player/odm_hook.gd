@@ -4,11 +4,16 @@ extends Node3D
 
 enum State { IDLE, ATTACHED }
 
+## Emitted when the hook latches to a world anchor.
 signal attached(anchor: Vector3)
+## Emitted when the hook returns to the idle state.
 signal detached
 
+## Selects the default side of the ODM gear used by this hook.
 @export var is_left: bool = true
+## Radius of the visible cable cylinder.
 @export var cable_radius: float = 0.02
+## Material color applied to the cable mesh.
 @export var cable_color: Color = Color(0.15, 0.15, 0.18)
 
 var state: State = State.IDLE
@@ -19,6 +24,7 @@ var _cable_mesh: MeshInstance3D
 var _tip_mesh: MeshInstance3D
 
 
+## Creates the visible cable cylinder and hook-tip mesh used by this hook.
 func _ready() -> void:
 	_cable_mesh = MeshInstance3D.new()
 	_cable_mesh.name = "Cable"
@@ -48,10 +54,13 @@ func _ready() -> void:
 	add_child(_tip_mesh)
 
 
+## Reports whether the hook currently has a latched anchor.
 func is_attached() -> bool:
 	return state == State.ATTACHED
 
 
+## Raycasts along the supplied aim direction, stores the hit as the anchor,
+## and reveals the cable and tip meshes when a valid target is found.
 func fire(
 	origin: Vector3,
 	direction: Vector3,
@@ -77,6 +86,8 @@ func fire(
 	return true
 
 
+## Returns the hook to its idle state, hides its visuals, and emits detach
+## only when it was previously attached.
 func detach() -> void:
 	if state == State.IDLE:
 		_cable_mesh.visible = false
@@ -88,12 +99,15 @@ func detach() -> void:
 	detached.emit()
 
 
+## Decreases cable length while preserving the configured minimum length.
 func shorten(amount: float, min_length: float = 1.5) -> void:
 	if state != State.ATTACHED:
 		return
 	cable_length = maxf(min_length, cable_length - amount)
 
 
+## Positions, rotates, scales, and toggles the cable mesh between the socket
+## and its anchor point.
 func update_visual(from_global: Vector3) -> void:
 	if state != State.ATTACHED:
 		_cable_mesh.visible = false
@@ -119,6 +133,7 @@ func update_visual(from_global: Vector3) -> void:
 		mesh.height = length
 
 
+## Builds an orthonormal basis whose Y axis points along the cable.
 func _basis_from_y(y_axis: Vector3) -> Basis:
 	var y := y_axis.normalized()
 	var x := y.cross(Vector3.UP)

@@ -1,19 +1,49 @@
 extends CharacterBody3D
 
+## Maximum speed used for ordinary walking with no directional sprint input.
 @export var walk_speed: float = 3.5
+## Default ground speed used while moving without sprinting.
 @export var jog_speed: float = 5.0
+## Maximum ground speed while sprint is held.
 @export var sprint_speed: float = 8.0
+## Ground speed used while crouching.
 @export var crouch_speed: float = 2.0
+## Initial horizontal speed assigned when a slide starts.
 @export var slide_speed: float = 10.0
+## Duration of the looping slide phase before the exit animation begins.
 @export var slide_loop_duration: float = 0.45
+## Minimum horizontal speed required for a crouch press to start a slide.
 @export var slide_min_speed: float = 6.0
+## Initial upward velocity applied when a jump begins.
 @export var jump_velocity: float = 4.5
+@export_category("Physics Tuning")
+## Multiplies the project gravity applied while airborne.
+@export_range(0.0, 3.0, 0.05, "or_greater") var gravity_scale: float = 1.0
+## Caps downward velocity so falls do not become uncontrollably fast.
+@export_range(0.1, 100.0, 0.5, "or_greater") var terminal_fall_speed: float = 30.0
+## Ground acceleration and braking control how quickly horizontal speed changes.
+@export_range(0.0, 100.0, 0.5, "or_greater") var ground_acceleration: float = 28.0
+## Rate used to slow horizontal movement on the ground.
+@export_range(0.0, 100.0, 0.5, "or_greater") var ground_deceleration: float = 35.0
+## Air acceleration and braking control steering after a jump.
+@export_range(0.0, 100.0, 0.5, "or_greater") var air_acceleration: float = 10.0
+## Light horizontal drag applied while airborne without movement input.
+@export_range(0.0, 100.0, 0.1, "or_greater") var air_deceleration: float = 0.6
+## Releasing jump while rising multiplies vertical velocity by this value.
+@export_range(0.0, 1.0, 0.05) var jump_release_multiplier: float = 0.45
+## Interpolation speed used when rotating toward movement direction.
 @export var turn_speed: float = 12.0
+## Mouse look sensitivity applied to third-person camera rotation.
 @export var mouse_sensitivity: float = 0.08
+## Minimum pitch for shoulder cameras.
 @export var min_pitch: float = -60.0
+## Maximum pitch for shoulder cameras.
 @export var max_pitch: float = 45.0
+## Minimum pitch for the overhead camera.
 @export var overhead_min_pitch: float = -85.0
+## Maximum pitch for the overhead camera.
 @export var overhead_max_pitch: float = 10.0
+## Priority assigned to whichever PhantomCamera is currently active.
 @export var active_pcam_priority: int = 10
 ## Cycle order: right shoulder → left shoulder → overhead.
 @export var camera_cycle_names: PackedStringArray = PackedStringArray([
@@ -22,22 +52,37 @@ extends CharacterBody3D
 	"OverheadCam",
 ])
 
+## GLB containing locomotion, jump, and crouch animation clips.
 @export_file("*.glb") var ual1_path: String = "res://assets/anims/UAL1_Standard.glb"
+## GLB containing slide and other action animation clips.
 @export_file("*.glb") var ual2_path: String = "res://assets/anims/UAL2_Standard.glb"
 
 ## Clip names as imported by Godot (UAL suffixes like "_Loop" are often stripped).
+## Idle clip used when the player has no horizontal movement.
 @export var idle_animation: StringName = &"Idle"
+## Walking clip used at the lowest non-zero ground speed.
 @export var walk_animation: StringName = &"Walk"
+## Jogging clip used for regular movement.
 @export var jog_animation: StringName = &"Jog_Fwd"
+## Sprinting clip used while sprint input is held.
 @export var sprint_animation: StringName = &"Sprint"
+## Crouched idle clip used while crouching without movement.
 @export var crouch_idle_animation: StringName = &"Crouch_Idle"
+## Crouched movement clip used while moving in a crouch.
 @export var crouch_walk_animation: StringName = &"Crouch_Fwd"
+## One-shot clip played when a slide begins.
 @export var slide_start_animation: StringName = &"Slide_Start"
+## Looping clip used during the slide phase.
 @export var slide_animation: StringName = &"Slide"
+## One-shot clip played when a slide ends.
 @export var slide_exit_animation: StringName = &"Slide_Exit"
+## One-shot clip played at jump takeoff.
 @export var jump_start_animation: StringName = &"Jump_Start"
+## Looping clip used while falling.
 @export var jump_fall_animation: StringName = &"Jump"
+## One-shot clip played during a standing landing.
 @export var jump_land_animation: StringName = &"Jump_Land"
+## Horizontal speed threshold below which idle is selected.
 @export var walk_speed_threshold: float = 0.4
 ## Crossfade time when switching clips (AnimationPlayer blend).
 @export var anim_blend_time: float = 0.18
@@ -79,6 +124,8 @@ const LIB_UAL2: StringName = &"ual2"
 const CROUCH_HEIGHT_SCALE: float = 0.6
 
 
+## Initializes player state, input bindings, animation libraries, ODM wiring,
+## and the deferred camera lookup used by the third-person controller.
 func _ready() -> void:
 	add_to_group("player")
 	_ensure_input_actions()
@@ -92,6 +139,8 @@ func _ready() -> void:
 	call_deferred("_resolve_camera_nodes")
 
 
+## Connects the player to the ODM controller and binds player audio and HUD
+## dependencies that may not be ready until the scene tree has finished setup.
 func _setup_odm() -> void:
 	if odm == null:
 		return
@@ -102,6 +151,8 @@ func _setup_odm() -> void:
 	call_deferred("_bind_hud")
 
 
+## Finds the HUD instance and gives it the ODM controller so it can display
+## gas and hook state.
 func _bind_hud() -> void:
 	_hud = get_tree().get_first_node_in_group("odm_hud")
 	if _hud == null:
@@ -110,6 +161,8 @@ func _bind_hud() -> void:
 		_hud.bind_odm(odm)
 
 
+## Handles global player input: mouse capture, escape, camera cycling, and
+## third-person camera look rotation.
 func _input(event: InputEvent) -> void:
 	# Use _input (not _unhandled_input) so HUD controls at screen center cannot eat look.
 	if event is InputEventMouseButton and event.pressed:
@@ -142,6 +195,8 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
+## Runs the main movement loop each physics frame, choosing between normal
+## ground movement and ODM movement before applying collision resolution.
 func _physics_process(delta: float) -> void:
 	if _camera == null or _pcam == null:
 		_resolve_camera_nodes()
@@ -151,7 +206,10 @@ func _physics_process(delta: float) -> void:
 	var odm_active := odm != null and odm.is_active()
 
 	if not is_on_floor():
-		velocity += get_gravity() * delta
+		velocity += get_gravity() * gravity_scale * delta
+		velocity.y = maxf(velocity.y, -terminal_fall_speed)
+		if Input.is_action_just_released("jump") and velocity.y > 0.0:
+			velocity.y *= jump_release_multiplier
 
 	if odm_active:
 		# Cancel slide if we leave grounded control for ODM.
@@ -181,6 +239,8 @@ func _physics_process(delta: float) -> void:
 	_update_audio(delta)
 
 
+## Rotates the player toward horizontal movement while preserving vertical
+## velocity and avoiding jitter when movement is nearly stopped.
 func _face_velocity(delta: float) -> void:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 	if horizontal.length() < 0.4:
@@ -189,6 +249,8 @@ func _face_velocity(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, target_yaw, turn_speed * delta)
 
 
+## Updates looping footsteps and sprint audio based on horizontal speed,
+## stance, floor contact, and whether the player is using ODM hooks.
 func _update_audio(delta: float) -> void:
 	if player_audio == null:
 		return
@@ -199,6 +261,8 @@ func _update_audio(delta: float) -> void:
 		player_audio.play_footsteps(delta, moving, sprinting, is_on_floor() and not _is_sliding)
 
 
+## Starts a jump by applying vertical velocity, leaving crouch, and selecting
+## the jump-start animation before the normal falling phase.
 func _start_jump() -> void:
 	velocity.y = jump_velocity
 	_is_crouching = false
@@ -211,6 +275,7 @@ func _start_jump() -> void:
 		_begin_fall()
 
 
+## Switches the air state to the looping fall phase and plays the fall clip.
 func _begin_fall() -> void:
 	if _air_phase == AirPhase.LAND:
 		return
@@ -218,6 +283,8 @@ func _begin_fall() -> void:
 	_play_library_animation(LIB_UAL1, jump_fall_animation)
 
 
+## Chooses between a dedicated landing animation and an immediate return to
+## locomotion when momentum or input means the player is already moving.
 func _begin_land() -> void:
 	var horizontal_speed := Vector2(velocity.x, velocity.z).length()
 	var wants_move := Input.get_vector("move_left", "move_right", "move_forward", "move_back") != Vector2.ZERO
@@ -238,12 +305,15 @@ func _begin_land() -> void:
 		_finish_land()
 
 
+## Clears the landing state so the regular locomotion selector can resume.
 func _finish_land() -> void:
 	_air_phase = AirPhase.NONE
 	_land_timer = 0.0
 	_current_anim = &""
 
 
+## Detects walking off edges, the jump apex, landing, and early interruption
+## of the landing pose.
 func _update_air_state() -> void:
 	if _is_sliding:
 		_was_on_floor = is_on_floor()
@@ -273,6 +343,8 @@ func _update_air_state() -> void:
 	_was_on_floor = on_floor
 
 
+## Resolves crouch and slide requests, including the speed threshold that
+## converts a sprinting crouch press into a slide.
 func _update_stance_state() -> void:
 	var wants_crouch := Input.is_action_pressed("crouch")
 	var is_sprinting := Input.is_action_pressed("sprint")
@@ -295,6 +367,8 @@ func _update_stance_state() -> void:
 	_apply_capsule_stance()
 
 
+## Enters the slide state, stores the travel direction, adjusts the capsule,
+## and starts the slide-start animation.
 func _start_slide() -> void:
 	_is_sliding = true
 	_is_crouching = true
@@ -315,6 +389,8 @@ func _start_slide() -> void:
 		_begin_slide_loop()
 
 
+## Switches from the slide-start clip to the looping slide clip once the
+## start animation has finished.
 func _begin_slide_loop() -> void:
 	if not _is_sliding:
 		return
@@ -325,6 +401,8 @@ func _begin_slide_loop() -> void:
 	_play_library_animation(LIB_UAL2, slide_animation)
 
 
+## Begins the slide exit animation, or finishes immediately if that clip is
+## unavailable.
 func _begin_slide_exit() -> void:
 	if not _is_sliding or _slide_phase == SlidePhase.EXIT or _slide_phase == SlidePhase.NONE:
 		return
@@ -335,6 +413,8 @@ func _begin_slide_exit() -> void:
 		_finish_slide()
 
 
+## Leaves the slide state, restores the requested crouch state, and allows
+## locomotion animation selection to take over.
 func _finish_slide() -> void:
 	_is_sliding = false
 	_slide_phase = SlidePhase.NONE
@@ -343,6 +423,8 @@ func _finish_slide() -> void:
 	_current_anim = &""
 
 
+## Applies slide velocity and rotation, exits when the floor is lost, and
+## counts down the loop duration before starting the exit phase.
 func _process_slide(delta: float) -> void:
 	var speed_scale := 1.0 if _slide_phase != SlidePhase.EXIT else 0.55
 	velocity.x = _slide_direction.x * slide_speed * speed_scale
@@ -361,6 +443,8 @@ func _process_slide(delta: float) -> void:
 			_begin_slide_exit()
 
 
+## Responds to one-shot animation completion by advancing jump and slide
+## state machines to their next phases.
 func _on_animation_finished(anim_name: StringName) -> void:
 	var jump_start_name := StringName("%s/%s" % [LIB_UAL1, jump_start_animation])
 	var jump_land_name := StringName("%s/%s" % [LIB_UAL1, jump_land_animation])
@@ -387,21 +471,36 @@ func _on_animation_finished(anim_name: StringName) -> void:
 		_finish_slide()
 
 
+## Converts keyboard movement into camera-relative target velocity, applies
+## ground/air acceleration or braking, and turns toward the requested direction.
 func _process_move(delta: float) -> void:
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var move_dir := _camera_relative_direction(input_dir)
 	var current_speed := _get_move_speed()
+	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
+	if is_on_floor():
+		if move_dir.length() > 0.0:
+			var target_velocity := move_dir * current_speed
+			horizontal.x = move_toward(horizontal.x, target_velocity.x, ground_acceleration * delta)
+			horizontal.z = move_toward(horizontal.z, target_velocity.z, ground_acceleration * delta)
+		else:
+			horizontal = horizontal.move_toward(Vector3.ZERO, ground_deceleration * delta)
+	elif move_dir.length() > 0.0:
+		# Add control only up to ordinary air speed along the requested direction.
+		# Existing speed, including momentum from an ODM launch, carries through.
+		var available_speed := maxf(0.0, current_speed - horizontal.dot(move_dir))
+		horizontal += move_dir * minf(air_acceleration * delta, available_speed)
+	else:
+		horizontal = horizontal.move_toward(Vector3.ZERO, air_deceleration * delta)
 
+	velocity.x = horizontal.x
+	velocity.z = horizontal.z
 	if move_dir.length() > 0.0:
-		velocity.x = move_dir.x * current_speed
-		velocity.z = move_dir.z * current_speed
 		var target_yaw := atan2(move_dir.x, move_dir.z)
 		rotation.y = lerp_angle(rotation.y, target_yaw, turn_speed * delta)
-	else:
-		velocity.x = move_toward(velocity.x, 0.0, current_speed)
-		velocity.z = move_toward(velocity.z, 0.0, current_speed)
 
 
+## Selects the current ground speed from crouch, sprint, jog, or walk input.
 func _get_move_speed() -> float:
 	if _is_crouching:
 		return crouch_speed
@@ -413,6 +512,8 @@ func _get_move_speed() -> float:
 	return walk_speed
 
 
+## Stores the original capsule dimensions and vertical offset so crouching
+## can be applied and later restored without hardcoding scene changes.
 func _cache_capsule_defaults() -> void:
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		var capsule := collision_shape.shape as CapsuleShape3D
@@ -421,6 +522,8 @@ func _cache_capsule_defaults() -> void:
 		_standing_shape_y = collision_shape.position.y
 
 
+## Resizes and repositions the collision capsule for crouching/sliding or
+## restores the standing shape.
 func _apply_capsule_stance() -> void:
 	if collision_shape == null or not (collision_shape.shape is CapsuleShape3D):
 		return
@@ -435,6 +538,8 @@ func _apply_capsule_stance() -> void:
 		collision_shape.position.y = _standing_shape_y
 
 
+## Converts a 2D input vector into a world-space direction using the active
+## camera's horizontal forward and right vectors.
 func _camera_relative_direction(input_dir: Vector2) -> Vector3:
 	if input_dir == Vector2.ZERO:
 		return Vector3.ZERO
@@ -456,6 +561,8 @@ func _camera_relative_direction(input_dir: Vector2) -> Vector3:
 	return (forward * -input_dir.y + right * input_dir.x).normalized()
 
 
+## Resolves the gameplay camera and the ordered PhantomCamera cycle, then
+## initializes the active camera and its follow offset.
 func _resolve_camera_nodes() -> void:
 	_camera = get_viewport().get_camera_3d()
 	if _camera == null:
@@ -494,6 +601,8 @@ func _resolve_camera_nodes() -> void:
 	_update_camera_follow_offsets()
 
 
+## Advances to the next configured PhantomCamera when camera cycling is
+## requested.
 func _cycle_camera() -> void:
 	if _pcams.is_empty():
 		_resolve_camera_nodes()
@@ -502,6 +611,8 @@ func _cycle_camera() -> void:
 	_set_active_pcam((_pcam_index + 1) % _pcams.size(), true)
 
 
+## Applies a camera priority and optionally copies the previous camera's
+## third-person rotation into the newly active camera.
 func _set_active_pcam(index: int, copy_rotation: bool) -> void:
 	if _pcams.is_empty():
 		return
@@ -525,6 +636,8 @@ func _set_active_pcam(index: int, copy_rotation: bool) -> void:
 		_pcam.set_third_person_rotation_degrees(previous_rotation)
 
 
+## Rebuilds shoulder-camera offsets from the actual viewport direction so the
+## right and left shoulder views remain correct after the player turns.
 func _update_camera_follow_offsets() -> void:
 	if _pcams.size() != _pcam_local_offsets.size() or _camera == null:
 		return
@@ -556,10 +669,14 @@ func _update_camera_follow_offsets() -> void:
 		_pcams[i].follow_offset = world_offset
 
 
+## Reports whether the active PhantomCamera is the overhead camera so pitch
+## limits can be adjusted for that view.
 func _is_overhead_camera() -> bool:
 	return _pcam != null and _pcam.name == &"OverheadCam"
 
 
+## Loads both UAL animation libraries, configures looping and one-shot clips,
+## and starts the player's idle animation.
 func _setup_animations() -> void:
 	if animation_player == null:
 		push_warning("Player AnimationPlayer missing")
@@ -587,6 +704,8 @@ func _setup_animations() -> void:
 	_play_library_animation(LIB_UAL1, idle_animation)
 
 
+## Loads a GLB animation scene, duplicates its library, and installs it under
+## a stable local name so the player can reference clips consistently.
 func _load_animation_library(path: String, library_name: StringName) -> void:
 	var packed := load(path) as PackedScene
 	if packed == null:
@@ -613,6 +732,7 @@ func _load_animation_library(path: String, library_name: StringName) -> void:
 	temp.queue_free()
 
 
+## Marks an animation as looping when the requested library and clip exist.
 func _force_loop(library_name: StringName, clip_name: StringName) -> void:
 	if not animation_player.has_animation_library(library_name):
 		return
@@ -621,6 +741,8 @@ func _force_loop(library_name: StringName, clip_name: StringName) -> void:
 		lib.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
 
 
+## Marks an animation as a one-shot clip when the requested library and clip
+## exist.
 func _force_oneshot(library_name: StringName, clip_name: StringName) -> void:
 	if not animation_player.has_animation_library(library_name):
 		return
@@ -629,6 +751,8 @@ func _force_oneshot(library_name: StringName, clip_name: StringName) -> void:
 		lib.get_animation(clip_name).loop_mode = Animation.LOOP_NONE
 
 
+## Selects the highest-priority animation state: ODM falling, slide/air
+## states, crouch movement, or regular idle/walk/run locomotion.
 func _update_animation() -> void:
 	if animation_player == null:
 		return
@@ -663,11 +787,14 @@ func _update_animation() -> void:
 		_play_library_animation(LIB_UAL1, walk_animation)
 
 
+## Checks whether a fully qualified library/clip animation is available.
 func _has_clip(library_name: StringName, clip_name: StringName) -> bool:
 	var full_name := StringName("%s/%s" % [library_name, clip_name])
 	return animation_player != null and animation_player.has_animation(full_name)
 
 
+## Plays an animation with crossfade blending, falling back to another
+## animation library when the requested clip name is found there.
 func _play_library_animation(library_name: StringName, clip_name: StringName) -> void:
 	var full_name := StringName("%s/%s" % [library_name, clip_name])
 	if full_name == _current_anim:
@@ -686,6 +813,8 @@ func _play_library_animation(library_name: StringName, clip_name: StringName) ->
 	_current_anim = full_name
 
 
+## Ensures every player action exists even when the project input map is
+## initially empty; existing bindings are left untouched.
 func _ensure_input_actions() -> void:
 	_add_key_action("move_forward", KEY_W)
 	_add_key_action("move_back", KEY_S)
@@ -697,6 +826,8 @@ func _ensure_input_actions() -> void:
 	_add_key_action("camera_cycle", KEY_V)
 
 
+## Adds one physical-key binding to an action only when that exact binding is
+## not already present.
 func _add_key_action(action: StringName, keycode: Key) -> void:
 	if not InputMap.has_action(action):
 		InputMap.add_action(action)

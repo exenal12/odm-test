@@ -8,6 +8,8 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/odm_hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://scripts/world/map_switcher.gd" id="7_switch"]
 
+[ext_resource type="PackedScene" path="res://scenes/enemies/titan.tscn" id="8_titan"]
+
 [sub_resource type="Resource" id="Resource_bq33v"]
 script = ExtResource("4_t5ptc")
 duration = 0.3
@@ -104,5 +106,8 @@ spring_length = 3.5
 align_transform_with_view = Callable()
 align_position_with_view = Callable()
 align_rotation_with_view = Callable()
+
+[node name="Titan" parent="." instance=ExtResource("8_titan")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -30)
 
 [node name="ODMHUD" parent="." unique_id=532337543 instance=ExtResource("6_hud")]

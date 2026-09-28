@@ -1,0 +1,31 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="metal"]
+albedo_color = Color(0.2, 0.22, 0.25, 1)
+metallic = 0.7
+roughness = 0.35
+
+[sub_resource type="BoxMesh" id="housing"]
+size = Vector3(0.32, 0.16, 0.17)
+
+[sub_resource type="CylinderMesh" id="tank"]
+top_radius = 0.065
+bottom_radius = 0.065
+height = 0.33
+
+[node name="ODMGearVisual" type="Node3D"]
+
+[node name="Housing" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.02, 0.13)
+mesh = SubResource("housing")
+surface_material_override/0 = SubResource("metal")
+
+[node name="LeftTank" type="MeshInstance3D" parent="."]
+position = Vector3(-0.19, -0.01, 0.06)
+mesh = SubResource("tank")
+surface_material_override/0 = SubResource("metal")
+
+[node name="RightTank" type="MeshInstance3D" parent="."]
+position = Vector3(0.19, -0.01, 0.06)
+mesh = SubResource("tank")
+surface_material_override/0 = SubResource("metal")

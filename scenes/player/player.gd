@@ -1,11 +1,11 @@
 extends CharacterBody3D
 
 ## Maximum speed used for ordinary walking with no directional sprint input.
-@export var walk_speed: float = 3.5
+@export var walk_speed: float = 2.0
 ## Default ground speed used while moving without sprinting.
-@export var jog_speed: float = 5.0
+@export var jog_speed: float = 2.0
 ## Maximum ground speed while sprint is held.
-@export var sprint_speed: float = 8.0
+@export var sprint_speed: float = 4.0
 ## Ground speed used while crouching.
 @export var crouch_speed: float = 2.0
 ## Initial horizontal speed assigned when a slide starts.
@@ -13,7 +13,7 @@ extends CharacterBody3D
 ## Duration of the looping slide phase before the exit animation begins.
 @export var slide_loop_duration: float = 0.45
 ## Minimum horizontal speed required for a crouch press to start a slide.
-@export var slide_min_speed: float = 6.0
+@export var slide_min_speed: float = 3.5
 ## Initial upward velocity applied when a jump begins.
 @export var jump_velocity: float = 4.5
 @export_category("Physics Tuning")
@@ -52,20 +52,15 @@ extends CharacterBody3D
 	"OverheadCam",
 ])
 
-## GLB containing locomotion, jump, and crouch animation clips.
-@export_file("*.glb") var ual1_path: String = "res://assets/anims/UAL1_Standard.glb"
-## GLB containing slide and other action animation clips.
-@export_file("*.glb") var ual2_path: String = "res://assets/anims/UAL2_Standard.glb"
-
-## Clip names as imported by Godot (UAL suffixes like "_Loop" are often stripped).
+## Clip names baked onto the native HumanF rig in the glTF scene.
 ## Idle clip used when the player has no horizontal movement.
 @export var idle_animation: StringName = &"Idle"
 ## Walking clip used at the lowest non-zero ground speed.
 @export var walk_animation: StringName = &"Walk"
 ## Jogging clip used for regular movement.
-@export var jog_animation: StringName = &"Jog_Fwd"
+@export var jog_animation: StringName = &"RunForward"
 ## Sprinting clip used while sprint input is held.
-@export var sprint_animation: StringName = &"Sprint"
+@export var sprint_animation: StringName = &"RunForward"
 ## Crouched idle clip used while crouching without movement.
 @export var crouch_idle_animation: StringName = &"Crouch_Idle"
 ## Crouched movement clip used while moving in a crouch.
@@ -91,7 +86,9 @@ extends CharacterBody3D
 ## If still holding move during a standing land, cancel Jump_Land after this many seconds.
 @export var land_interrupt_time: float = 0.2
 
-@onready var animation_player: AnimationPlayer = $Model/Armature/AnimationPlayer
+@onready var animation_player: AnimationPlayer = $Model/AnimationPlayer
+@onready var player_animation: PlayerAnimation = $PlayerAnimation
+@onready var sword_combat: SwordCombat = $SwordCombat
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var odm: ODMController = $ODMController
 @onready var odm_gear: Node3D = $ODMGear
@@ -110,6 +107,7 @@ var _is_crouching: bool = false
 var _is_sliding: bool = false
 var _slide_phase: SlidePhase = SlidePhase.NONE
 var _slide_loop_time_left: float = 0.0
+var _slide_phase_time: float = 0.0
 var _slide_direction: Vector3 = Vector3.FORWARD
 var _air_phase: AirPhase = AirPhase.NONE
 var _was_on_floor: bool = true
@@ -119,8 +117,7 @@ var _standing_capsule_radius: float = 0.34814453
 var _standing_shape_y: float = 0.93436825
 var _hud: Node
 
-const LIB_UAL1: StringName = &"ual1"
-const LIB_UAL2: StringName = &"ual2"
+const LIB_HUMANF: StringName = &"humanf"
 const CROUCH_HEIGHT_SCALE: float = 0.6
 
 
@@ -132,8 +129,6 @@ func _ready() -> void:
 	_cache_capsule_defaults()
 	_setup_animations()
 	_setup_odm()
-	if animation_player:
-		animation_player.animation_finished.connect(_on_animation_finished)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Camera / pcam are later siblings in world.tscn; resolve after the tree is ready.
 	call_deferred("_resolve_camera_nodes")
@@ -269,8 +264,8 @@ func _start_jump() -> void:
 	_apply_capsule_stance()
 	_air_phase = AirPhase.START
 	_was_on_floor = false
-	if _has_clip(LIB_UAL1, jump_start_animation):
-		_play_library_animation(LIB_UAL1, jump_start_animation)
+	if _has_clip(LIB_HUMANF, jump_start_animation):
+		_play_library_animation(LIB_HUMANF, jump_start_animation)
 	else:
 		_begin_fall()
 
@@ -280,7 +275,7 @@ func _begin_fall() -> void:
 	if _air_phase == AirPhase.LAND:
 		return
 	_air_phase = AirPhase.FALL
-	_play_library_animation(LIB_UAL1, jump_fall_animation)
+	_play_library_animation(LIB_HUMANF, jump_fall_animation)
 
 
 ## Chooses between a dedicated landing animation and an immediate return to
@@ -299,8 +294,8 @@ func _begin_land() -> void:
 
 	_air_phase = AirPhase.LAND
 	_land_timer = 0.0
-	if _has_clip(LIB_UAL1, jump_land_animation):
-		_play_library_animation(LIB_UAL1, jump_land_animation)
+	if _has_clip(LIB_HUMANF, jump_land_animation):
+		_play_library_animation(LIB_HUMANF, jump_land_animation)
 	else:
 		_finish_land()
 
@@ -337,7 +332,7 @@ func _update_air_state() -> void:
 	if _air_phase == AirPhase.LAND:
 		_land_timer += get_physics_process_delta_time()
 		var wants_move := Input.get_vector("move_left", "move_right", "move_forward", "move_back") != Vector2.ZERO
-		if wants_move and _land_timer >= land_interrupt_time:
+		if (wants_move and _land_timer >= land_interrupt_time) or _land_timer >= player_animation.clip_length(jump_land_animation):
 			_finish_land()
 
 	_was_on_floor = on_floor
@@ -374,6 +369,7 @@ func _start_slide() -> void:
 	_is_crouching = true
 	_slide_phase = SlidePhase.START
 	_slide_loop_time_left = slide_loop_duration
+	_slide_phase_time = 0.0
 	_apply_capsule_stance()
 
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
@@ -383,8 +379,8 @@ func _start_slide() -> void:
 	velocity.x = _slide_direction.x * slide_speed
 	velocity.z = _slide_direction.z * slide_speed
 
-	if _has_clip(LIB_UAL2, slide_start_animation):
-		_play_library_animation(LIB_UAL2, slide_start_animation)
+	if _has_clip(LIB_HUMANF, slide_start_animation):
+		_play_library_animation(LIB_HUMANF, slide_start_animation)
 	else:
 		_begin_slide_loop()
 
@@ -398,7 +394,8 @@ func _begin_slide_loop() -> void:
 		return
 	_slide_phase = SlidePhase.LOOP
 	_slide_loop_time_left = slide_loop_duration
-	_play_library_animation(LIB_UAL2, slide_animation)
+	_slide_phase_time = 0.0
+	_play_library_animation(LIB_HUMANF, slide_animation)
 
 
 ## Begins the slide exit animation, or finishes immediately if that clip is
@@ -407,8 +404,9 @@ func _begin_slide_exit() -> void:
 	if not _is_sliding or _slide_phase == SlidePhase.EXIT or _slide_phase == SlidePhase.NONE:
 		return
 	_slide_phase = SlidePhase.EXIT
-	if _has_clip(LIB_UAL2, slide_exit_animation):
-		_play_library_animation(LIB_UAL2, slide_exit_animation)
+	_slide_phase_time = 0.0
+	if _has_clip(LIB_HUMANF, slide_exit_animation):
+		_play_library_animation(LIB_HUMANF, slide_exit_animation)
 	else:
 		_finish_slide()
 
@@ -418,6 +416,7 @@ func _begin_slide_exit() -> void:
 func _finish_slide() -> void:
 	_is_sliding = false
 	_slide_phase = SlidePhase.NONE
+	_slide_phase_time = 0.0
 	_is_crouching = Input.is_action_pressed("crouch")
 	_apply_capsule_stance()
 	_current_anim = &""
@@ -437,37 +436,14 @@ func _process_slide(delta: float) -> void:
 		_begin_slide_exit()
 		return
 
-	if _slide_phase == SlidePhase.LOOP:
+	_slide_phase_time += delta
+	if _slide_phase == SlidePhase.START and _slide_phase_time >= player_animation.clip_length(slide_start_animation):
+		_begin_slide_loop()
+	elif _slide_phase == SlidePhase.LOOP:
 		_slide_loop_time_left -= delta
 		if _slide_loop_time_left <= 0.0:
 			_begin_slide_exit()
-
-
-## Responds to one-shot animation completion by advancing jump and slide
-## state machines to their next phases.
-func _on_animation_finished(anim_name: StringName) -> void:
-	var jump_start_name := StringName("%s/%s" % [LIB_UAL1, jump_start_animation])
-	var jump_land_name := StringName("%s/%s" % [LIB_UAL1, jump_land_animation])
-	var slide_start_name := StringName("%s/%s" % [LIB_UAL2, slide_start_animation])
-	var slide_exit_name := StringName("%s/%s" % [LIB_UAL2, slide_exit_animation])
-
-	if anim_name == jump_start_name and _air_phase == AirPhase.START:
-		if is_on_floor():
-			_begin_land()
-		else:
-			_begin_fall()
-		return
-
-	if anim_name == jump_land_name and _air_phase == AirPhase.LAND:
-		_finish_land()
-		return
-
-	if not _is_sliding:
-		return
-
-	if anim_name == slide_start_name and _slide_phase == SlidePhase.START:
-		_begin_slide_loop()
-	elif anim_name == slide_exit_name and _slide_phase == SlidePhase.EXIT:
+	elif _slide_phase == SlidePhase.EXIT and _slide_phase_time >= player_animation.clip_length(slide_exit_animation):
 		_finish_slide()
 
 
@@ -496,11 +472,16 @@ func _process_move(delta: float) -> void:
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	if move_dir.length() > 0.0:
-		var target_yaw := atan2(move_dir.x, move_dir.z)
+		var facing := move_dir
+		if _camera != null:
+			facing = -_camera.global_transform.basis.z
+			facing.y = 0.0
+			facing = facing.normalized()
+		var target_yaw := atan2(facing.x, facing.z)
 		rotation.y = lerp_angle(rotation.y, target_yaw, turn_speed * delta)
 
 
-## Selects the current ground speed from crouch, sprint, jog, or walk input.
+## Selects the current ground speed from crouch, sprint, or ordinary running input.
 func _get_move_speed() -> float:
 	if _is_crouching:
 		return crouch_speed
@@ -675,80 +656,12 @@ func _is_overhead_camera() -> bool:
 	return _pcam != null and _pcam.name == &"OverheadCam"
 
 
-## Loads both UAL animation libraries, configures looping and one-shot clips,
-## and starts the player's idle animation.
+## Checks that the native HumanF animation player is present.
 func _setup_animations() -> void:
 	if animation_player == null:
-		push_warning("Player AnimationPlayer missing")
+		push_error("HumanF AnimationPlayer missing")
 		return
-
-	_load_animation_library(ual1_path, LIB_UAL1)
-	_load_animation_library(ual2_path, LIB_UAL2)
-
-	for clip in [
-		idle_animation,
-		walk_animation,
-		jog_animation,
-		sprint_animation,
-		crouch_idle_animation,
-		crouch_walk_animation,
-		jump_fall_animation,
-	]:
-		_force_loop(LIB_UAL1, clip)
-	_force_oneshot(LIB_UAL1, jump_start_animation)
-	_force_oneshot(LIB_UAL1, jump_land_animation)
-	_force_loop(LIB_UAL2, slide_animation)
-	_force_oneshot(LIB_UAL2, slide_start_animation)
-	_force_oneshot(LIB_UAL2, slide_exit_animation)
-
-	_play_library_animation(LIB_UAL1, idle_animation)
-
-
-## Loads a GLB animation scene, duplicates its library, and installs it under
-## a stable local name so the player can reference clips consistently.
-func _load_animation_library(path: String, library_name: StringName) -> void:
-	var packed := load(path) as PackedScene
-	if packed == null:
-		push_warning("Could not load animation library: %s" % path)
-		return
-
-	var temp := packed.instantiate()
-	var source_player := temp.find_child("AnimationPlayer", true, false) as AnimationPlayer
-	if source_player == null:
-		temp.queue_free()
-		push_warning("No AnimationPlayer in %s" % path)
-		return
-
-	var source_libs := source_player.get_animation_library_list()
-	if source_libs.is_empty():
-		temp.queue_free()
-		push_warning("No animation libraries in %s" % path)
-		return
-
-	var copied := source_player.get_animation_library(source_libs[0]).duplicate(true) as AnimationLibrary
-	if animation_player.has_animation_library(library_name):
-		animation_player.remove_animation_library(library_name)
-	animation_player.add_animation_library(library_name, copied)
-	temp.queue_free()
-
-
-## Marks an animation as looping when the requested library and clip exist.
-func _force_loop(library_name: StringName, clip_name: StringName) -> void:
-	if not animation_player.has_animation_library(library_name):
-		return
-	var lib := animation_player.get_animation_library(library_name)
-	if lib.has_animation(clip_name):
-		lib.get_animation(clip_name).loop_mode = Animation.LOOP_LINEAR
-
-
-## Marks an animation as a one-shot clip when the requested library and clip
-## exist.
-func _force_oneshot(library_name: StringName, clip_name: StringName) -> void:
-	if not animation_player.has_animation_library(library_name):
-		return
-	var lib := animation_player.get_animation_library(library_name)
-	if lib.has_animation(clip_name):
-		lib.get_animation(clip_name).loop_mode = Animation.LOOP_NONE
+	_current_anim = &""
 
 
 ## Selects the highest-priority animation state: ODM falling, slide/air
@@ -761,7 +674,7 @@ func _update_animation() -> void:
 	if odm != null and odm.is_active() and not is_on_floor():
 		if _air_phase == AirPhase.NONE:
 			_air_phase = AirPhase.FALL
-		_play_library_animation(LIB_UAL1, jump_fall_animation)
+		_play_library_animation(LIB_HUMANF, jump_fall_animation)
 		return
 
 	# Slide / air clips are driven by their own state machines.
@@ -772,19 +685,37 @@ func _update_animation() -> void:
 
 	if _is_crouching:
 		if horizontal_speed > walk_speed_threshold:
-			_play_library_animation(LIB_UAL1, crouch_walk_animation)
+			_play_library_animation(LIB_HUMANF, crouch_walk_animation)
 		else:
-			_play_library_animation(LIB_UAL1, crouch_idle_animation)
+			_play_library_animation(LIB_HUMANF, crouch_idle_animation)
 		return
 
 	if horizontal_speed <= walk_speed_threshold:
-		_play_library_animation(LIB_UAL1, idle_animation)
-	elif Input.is_action_pressed("sprint"):
-		_play_library_animation(LIB_UAL1, sprint_animation)
-	elif horizontal_speed > jog_speed * 0.85:
-		_play_library_animation(LIB_UAL1, jog_animation)
+		_play_library_animation(LIB_HUMANF, idle_animation)
+	elif horizontal_speed < 2.4:
+		var travel_clip := _directional_run_clip()
+		var walk_clip := walk_animation if travel_clip == jog_animation or travel_clip == sprint_animation else travel_clip
+		_play_library_animation(LIB_HUMANF, walk_clip)
+		player_animation.play_base(walk_clip, 1.0 if walk_clip == walk_animation else clampf(horizontal_speed / 4.0, 0.5, 1.0))
 	else:
-		_play_library_animation(LIB_UAL1, walk_animation)
+		_play_library_animation(LIB_HUMANF, _directional_run_clip())
+		player_animation.play_base(_directional_run_clip(), clampf(horizontal_speed / 4.0, 0.5, 1.0))
+
+
+## Selects the baked 4 m/s run or strafe cycle from local travel direction.
+func _directional_run_clip() -> StringName:
+	var local := global_transform.basis.inverse() * Vector3(velocity.x, 0.0, velocity.z)
+	local = local.normalized()
+	if absf(local.x) > 0.4:
+		var side := "Left" if local.x >= 0.0 else "Right"
+		if local.z > 0.4:
+			return StringName("StrafeForward" + side)
+		if local.z < -0.4:
+			return StringName("StrafeBackward" + side)
+		return StringName("Strafe" + side)
+	if local.z > 0.0:
+		return sprint_animation if Input.is_action_pressed("sprint") else jog_animation
+	return &"RunBackward"
 
 
 ## Checks whether a fully qualified library/clip animation is available.
@@ -795,21 +726,13 @@ func _has_clip(library_name: StringName, clip_name: StringName) -> bool:
 
 ## Plays an animation with crossfade blending, falling back to another
 ## animation library when the requested clip name is found there.
-func _play_library_animation(library_name: StringName, clip_name: StringName) -> void:
-	var full_name := StringName("%s/%s" % [library_name, clip_name])
+func _play_library_animation(_library_name: StringName, clip_name: StringName) -> void:
+	if player_animation == null or not player_animation.has_clip(clip_name):
+		return
+	var full_name := StringName("humanf/%s" % clip_name)
 	if full_name == _current_anim:
 		return
-
-	if not animation_player.has_animation(full_name):
-		for lib_name in animation_player.get_animation_library_list():
-			var candidate := StringName("%s/%s" % [lib_name, clip_name])
-			if animation_player.has_animation(candidate):
-				full_name = candidate
-				break
-		if not animation_player.has_animation(full_name):
-			return
-
-	animation_player.play(full_name, anim_blend_time)
+	player_animation.play_base(clip_name)
 	_current_anim = full_name
 
 

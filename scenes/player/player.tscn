@@ -1,33 +1,71 @@
 [gd_scene format=3 uid="uid://ktt34fg2yng2"]
 
-[ext_resource type="PackedScene" uid="uid://dxa7mqv6x84ne" path="res://assets/characters/Mannequin_F.glb" id="1_8afob"]
+[ext_resource type="PackedScene" uid="uid://6rhpcu44gq8c" path="res://assets/Human Melee Animations/Models/HumanF_Model.fbx" id="1_model"]
 [ext_resource type="Script" uid="uid://p1ddsqveqlmo" path="res://scenes/player/player.gd" id="2_player"]
 [ext_resource type="Script" uid="uid://cvmrj6kehixxw" path="res://scripts/player/odm_controller.gd" id="3_odm"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear.tscn" id="4_gear"]
 [ext_resource type="PackedScene" uid="uid://bodvla7hglonk" path="res://scenes/player/player_audio.tscn" id="5_audio"]
+[ext_resource type="PackedScene" path="res://scenes/props/sword.tscn" id="6_sword"]
+[ext_resource type="Script" uid="uid://buk3pken1u8hv" path="res://scripts/player/sword_combat.gd" id="7_sword_combat"]
+[ext_resource type="Script" uid="uid://dfnmq3njuafsb" path="res://scripts/player/player_animation.gd" id="8_animation"]
+[ext_resource type="AnimationLibrary" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
+[ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
+[ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_xd2r4"]
 radius = 0.34814453
 height = 1.8745117
 
-[node name="Player" type="CharacterBody3D" unique_id=72584683 groups=["player"]]
+[node name="Player" type="CharacterBody3D" unique_id=524624872 groups=["player"]]
 script = ExtResource("2_player")
 
-[node name="Model" parent="." unique_id=990863049 instance=ExtResource("1_8afob")]
+[node name="Model" parent="." unique_id=252059979 instance=ExtResource("1_model")]
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="Model/Armature" parent_id_path=PackedInt32Array(990863049, 1632481274) index="1" unique_id=712710957]
+[node name="HumanF_BodyMesh" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(252059979, 272710244) index="0" unique_id=278777629]
+surface_material_override/0 = ExtResource("11_palette")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=212995564]
+[node name="LeftHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(252059979, 272710244) index="1" unique_id=158999885]
+transform = Transform3D(0.9999989, -3.269597e-07, -3.799796e-07, -5.1036477e-07, -6.3329935e-08, -0.99999994, 2.3607572e-07, 1.0000002, 6.07688e-08, 0.69346005, 1.3612697, -0.0038468689)
+bone_name = "B-handProp.L"
+bone_idx = 46
+
+[node name="LeftSword" parent="Model/Skeleton3D/LeftHandAttachment" unique_id=528773058 instance=ExtResource("6_sword")]
+
+[node name="RightHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(252059979, 272710244) index="2" unique_id=584954900]
+transform = Transform3D(1.0000002, 8.148345e-08, 2.8684735e-07, 2.4586916e-07, -2.2305176e-07, -0.99999976, -1.2604141e-07, 0.99999994, -2.0046718e-07, -0.6934601, 1.3612698, -0.003846934)
+bone_name = "B-handProp.R"
+bone_idx = 23
+
+[node name="RightSword" parent="Model/Skeleton3D/RightHandAttachment" unique_id=2020676103 instance=ExtResource("6_sword")]
+
+[node name="HipGearAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(252059979, 272710244) index="3" unique_id=1447194975]
+transform = Transform3D(1, 0, 0, 0, 0.99514604, -0.098413005, 0, 0.098413005, 0.99514604, 0, 0.967712, 0.016772)
+bone_name = "B-hips"
+bone_idx = 1
+
+[node name="ODMGearVisual" parent="Model/Skeleton3D/HipGearAttachment" unique_id=980034239 instance=ExtResource("10_visual")]
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Model" unique_id=1078163233]
+libraries/humanf = ExtResource("9_clips")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=484258308]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.93436825, 0)
 shape = SubResource("CapsuleShape3D_xd2r4")
 
-[node name="ODMGear" parent="." unique_id=319352239 instance=ExtResource("4_gear")]
+[node name="ODMGear" parent="." unique_id=1051570241 instance=ExtResource("4_gear")]
 
-[node name="ODMController" type="Node" parent="." unique_id=1622442634]
+[node name="ODMController" type="Node" parent="." unique_id=1773283964]
 script = ExtResource("3_odm")
-reel_speed = 8.0
+single_hook_arc_ratio = 0.5
+single_hook_arc_damping = 0.4
 gas_reel_drain = 0.0
 
-[node name="PlayerAudio" parent="." unique_id=512626331 instance=ExtResource("5_audio")]
+[node name="PlayerAnimation" type="Node" parent="." unique_id=899671800]
+script = ExtResource("8_animation")
+
+[node name="SwordCombat" type="Node" parent="." unique_id=1747625736]
+script = ExtResource("7_sword_combat")
+
+[node name="PlayerAudio" parent="." unique_id=369392604 instance=ExtResource("5_audio")]
 
 [editable path="Model"]

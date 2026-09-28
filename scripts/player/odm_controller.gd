@@ -27,6 +27,12 @@ signal reel_mode_changed(enabled: bool)
 @export var dual_pull_multiplier: float = 1.35
 ## Player travel speed and cable shortening rate while reel mode is on.
 @export_range(0.0, 100.0, 0.5, "or_greater") var reel_speed: float = 14.0
+## Extra reel speed when both hooks are attached (1.0 matches one hook).
+@export_range(0.0, 5.0, 0.05, "or_greater") var dual_reel_speed_multiplier: float = 1.35
+## How quickly extra speed (boost or carried momentum) fades while reeling.
+@export_range(0.0, 20.0, 0.1, "or_greater") var reel_boost_decay: float = 1.0
+## Hard upper limit on speed while reeling; speed above reel speed is kept up to this.
+@export_range(0.0, 200.0, 0.5, "or_greater") var max_grapple_speed: float = 45.0
 ## Maximum portion of reel speed that a single hook may carry sideways.
 @export_range(0.0, 0.8, 0.05) var single_hook_arc_ratio: float = 0.35
 ## Rate at which sideways momentum settles during a single-hook reel.
@@ -59,6 +65,7 @@ var _right_hook: ODMHook
 var _left_socket: Marker3D
 var _right_socket: Marker3D
 var _boosting: bool = false
+var _reel_boost_bonus: float = 0.0
 var reel_enabled: bool = true
 
 
@@ -163,10 +170,10 @@ func right_attached() -> bool:
 	return _right_hook != null and _right_hook.is_attached()
 
 
-## Ensures mouse and keyboard bindings exist for both hooks and boosting.
+## Keeps hook controls on Q/E and reserves mouse buttons for swords.
 func ensure_input_actions() -> void:
-	_add_mouse_action("odm_hook_left", MOUSE_BUTTON_LEFT)
-	_add_mouse_action("odm_hook_right", MOUSE_BUTTON_RIGHT)
+	_remove_mouse_bindings("odm_hook_left")
+	_remove_mouse_bindings("odm_hook_right")
 	_add_key_action("odm_hook_left", KEY_Q)
 	_add_key_action("odm_hook_right", KEY_E)
 	_add_key_action("odm_boost", KEY_SHIFT)
@@ -182,6 +189,8 @@ func physics_tick(delta: float) -> void:
 		_camera = _player.get_viewport().get_camera_3d()
 
 	_handle_hook_input()
+	if not reel_enabled or not is_hooked():
+		_reel_boost_bonus = 0.0
 	_player.motion_mode = CharacterBody3D.MOTION_MODE_FLOATING if reel_enabled and is_hooked() else CharacterBody3D.MOTION_MODE_GROUNDED
 	_apply_reel(delta)
 	_apply_cable_constraints(delta)
@@ -251,12 +260,13 @@ func _socket_global(is_left: bool) -> Vector3:
 func _apply_reel(delta: float) -> void:
 	if not reel_enabled:
 		return
+	var shortening := _effective_reel_speed() * delta
 	var reeling := false
 	if _left_hook.is_attached():
-		_left_hook.shorten(maxf(reel_speed, 0.0) * delta, min_cable_length)
+		_left_hook.shorten(shortening, min_cable_length)
 		reeling = true
 	if _right_hook.is_attached():
-		_right_hook.shorten(maxf(reel_speed, 0.0) * delta, min_cable_length)
+		_right_hook.shorten(shortening, min_cable_length)
 		reeling = true
 	if reeling and gas_reel_drain > 0.0:
 		_spend_gas(gas_reel_drain * delta)
@@ -272,7 +282,12 @@ func _apply_cable_constraints(delta: float) -> void:
 			_player.velocity = Vector3.ZERO
 			return
 		var direction := to_target / distance
-		var speed := minf(maxf(reel_speed, 0.0),
+		var base_speed := _effective_reel_speed()
+		var carried := _player.velocity.length() - base_speed
+		_reel_boost_bonus = maxf(_reel_boost_bonus, carried)
+		_reel_boost_bonus = clampf(_reel_boost_bonus, 0.0, maxf(0.0, max_grapple_speed - base_speed))
+		_reel_boost_bonus = move_toward(_reel_boost_bonus, 0.0, reel_boost_decay * delta)
+		var speed := minf(base_speed + _reel_boost_bonus,
 			maxf(0.0, distance - min_cable_length) * 7.0)
 		if left_attached() and right_attached():
 			_player.velocity = direction * speed
@@ -351,6 +366,7 @@ func _apply_boost(delta: float) -> void:
 		return
 
 	_boosting = true
+	var reel_boosting := reel_enabled and is_hooked()
 	var boost_dir := _aim_direction()
 	if reel_enabled and is_hooked():
 		var target := _reel_target()
@@ -361,11 +377,23 @@ func _apply_boost(delta: float) -> void:
 	if (not reel_enabled or not is_hooked()) and _player.velocity.length() > 1.0:
 		boost_dir = (boost_dir + _player.velocity.normalized() * 0.35).normalized()
 	_player.velocity += boost_dir * boost_impulse * delta
-	if _player.velocity.length() > boost_max_speed:
-		_player.velocity = _player.velocity.normalized() * boost_max_speed
+	var speed_cap := boost_max_speed
+	if reel_boosting:
+		# Boost must have room to add speed even above a high base reel speed.
+		speed_cap = maxf(speed_cap, maxf(_effective_reel_speed() + 4.0, max_grapple_speed))
+	if _player.velocity.length() > speed_cap:
+		_player.velocity = _player.velocity.normalized() * speed_cap
+	if reel_boosting:
+		_reel_boost_bonus = maxf(0.0, _player.velocity.length() - _effective_reel_speed())
 	_spend_gas(gas_boost_drain * delta)
 	if not was_boosting:
 		boosted.emit()
+
+
+## Returns the reel speed used by movement and cable shortening.
+func _effective_reel_speed() -> float:
+	var multiplier := dual_reel_speed_multiplier if left_attached() and right_attached() else 1.0
+	return maxf(reel_speed, 0.0) * maxf(multiplier, 0.0)
 
 
 ## Returns the current single anchor or midpoint between two anchors.
@@ -409,13 +437,10 @@ func _add_key_action(action: StringName, keycode: Key) -> void:
 	InputMap.action_add_event(action, event)
 
 
-## Adds a mouse-button binding to an action if it is not already present.
-func _add_mouse_action(action: StringName, button: MouseButton) -> void:
+## Removes old runtime or saved mouse bindings from a hook action.
+func _remove_mouse_bindings(action: StringName) -> void:
 	if not InputMap.has_action(action):
-		InputMap.add_action(action)
-	for existing in InputMap.action_get_events(action):
-		if existing is InputEventMouseButton and existing.button_index == button:
-			return
-	var event := InputEventMouseButton.new()
-	event.button_index = button
-	InputMap.action_add_event(action, event)
+		return
+	for event in InputMap.action_get_events(action):
+		if event is InputEventMouseButton:
+			InputMap.action_erase_event(action, event)

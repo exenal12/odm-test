@@ -17,9 +17,19 @@ signal detached
 @export var cable_color: Color = Color(0.15, 0.15, 0.18)
 
 var state: State = State.IDLE
-var anchor_point: Vector3 = Vector3.ZERO
+## World-space anchor. Follows the hit body when it moves.
+var anchor_point: Vector3:
+	get:
+		if is_instance_valid(_anchor_body):
+			_anchor_world = _anchor_body.global_transform * _anchor_local
+		return _anchor_world
+	set(value):
+		_anchor_world = value
 var cable_length: float = 0.0
 
+var _anchor_world: Vector3 = Vector3.ZERO
+var _anchor_body: Node3D
+var _anchor_local: Vector3 = Vector3.ZERO
 var _cable_mesh: MeshInstance3D
 var _tip_mesh: MeshInstance3D
 
@@ -78,6 +88,11 @@ func fire(
 		return false
 
 	anchor_point = hit.position
+	_anchor_body = null
+	var collider := hit.collider as Node3D
+	if collider is CharacterBody3D:
+		_anchor_body = collider
+		_anchor_local = collider.global_transform.affine_inverse() * hit.position
 	cable_length = origin.distance_to(anchor_point)
 	state = State.ATTACHED
 	_tip_mesh.visible = true
@@ -94,6 +109,7 @@ func detach() -> void:
 		_tip_mesh.visible = false
 		return
 	state = State.IDLE
+	_anchor_body = null
 	_cable_mesh.visible = false
 	_tip_mesh.visible = false
 	detached.emit()

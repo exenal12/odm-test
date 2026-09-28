@@ -30,6 +30,7 @@ bone_name = "B-handProp.L"
 bone_idx = 46
 
 [node name="LeftSword" parent="Model/Skeleton3D/LeftHandAttachment" unique_id=528773058 instance=ExtResource("6_sword")]
+transform = Transform3D(-1, 0, 8.742278e-08, 0, 1, 0, -8.742278e-08, 0, -1, 0, 0, 0)
 
 [node name="RightHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(252059979, 272710244) index="2" unique_id=584954900]
 transform = Transform3D(1.0000002, 8.148345e-08, 2.8684735e-07, 2.4586916e-07, -2.2305176e-07, -0.99999976, -1.2604141e-07, 0.99999994, -2.0046718e-07, -0.6934601, 1.3612698, -0.003846934)

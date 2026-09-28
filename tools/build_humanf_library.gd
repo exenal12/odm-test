@@ -177,8 +177,6 @@ func _stabilize_swing_head(skeleton: Skeleton3D, animation: Animation) -> void:
 	assert(chest == skeleton.find_bone("B-chest"))
 	var rest_neck := skeleton.get_bone_global_rest(neck).basis.get_rotation_quaternion()
 	var rest_head := skeleton.get_bone_global_rest(head).basis.get_rotation_quaternion()
-	var neck_rest_local := skeleton.get_bone_rest(neck).basis.get_rotation_quaternion()
-	var head_rest_local := skeleton.get_bone_rest(head).basis.get_rotation_quaternion()
 	var samples: Array = []
 	var sample_count := int(ceilf(animation.length * 30.0)) + 1
 	for i in sample_count:
@@ -186,8 +184,8 @@ func _stabilize_swing_head(skeleton: Skeleton3D, animation: Animation) -> void:
 		var chest_global := _sample_swing_global_rotation(skeleton, animation, tracks, chest, time)
 		var source_neck_global := _sample_swing_global_rotation(skeleton, animation, tracks, neck, time)
 		var desired_neck_global := source_neck_global.slerp(rest_neck, 0.5)
-		var neck_local := (chest_global * neck_rest_local).inverse() * desired_neck_global
-		var head_local := (desired_neck_global * head_rest_local).inverse() * rest_head
+		var neck_local := chest_global.inverse() * desired_neck_global
+		var head_local := desired_neck_global.inverse() * rest_head
 		samples.append([time, neck_local.normalized(), head_local.normalized()])
 	var neck_track: int = tracks["B-neck"]
 	var head_track: int = tracks["B-head"]
@@ -205,7 +203,6 @@ func _stabilize_swing_head(skeleton: Skeleton3D, animation: Animation) -> void:
 func _sample_swing_global_rotation(skeleton: Skeleton3D, animation: Animation, tracks: Dictionary, bone: int, time: float) -> Quaternion:
 	var parent := skeleton.get_bone_parent(bone)
 	var parent_rotation := _sample_swing_global_rotation(skeleton, animation, tracks, parent, time) if parent >= 0 else Quaternion.IDENTITY
-	var rest_rotation := skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
 	var name := String(skeleton.get_bone_name(bone))
-	var pose_rotation := animation.rotation_track_interpolate(tracks[name], time) if tracks.has(name) else Quaternion.IDENTITY
-	return (parent_rotation * rest_rotation * pose_rotation).normalized()
+	var pose_rotation := animation.rotation_track_interpolate(tracks[name], time) if tracks.has(name) else skeleton.get_bone_rest(bone).basis.get_rotation_quaternion()
+	return (parent_rotation * pose_rotation).normalized()

@@ -96,6 +96,7 @@ func _build_tree() -> void:
 		blend.connect_node(layer_name, 1, select_name)
 		previous = layer_name
 	blend.connect_node(&"output", 0, previous)
+	skeleton.add_child(HeadStabilizer.new())
 	tree = AnimationTree.new()
 	tree.name = "AnimationTree"
 	add_child(tree)
@@ -109,7 +110,7 @@ func _build_tree() -> void:
 func _mask_arm(node: AnimationNode, left: bool, include_torso: bool = false) -> void:
 	node.set_filter_enabled(true)
 	if include_torso:
-		for bone in ["B-spine", "B-chest", "B-neck", "B-head"]:
+		for bone in ["B-spine", "B-chest"]:
 			node.set_filter_path(NodePath("Skeleton3D:%s" % bone), true)
 	var suffix := ".L" if left else ".R"
 	for i in skeleton.get_bone_count():

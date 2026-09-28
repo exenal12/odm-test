@@ -107,7 +107,20 @@ func _run() -> void:
 	var blend_tree := slide_animation.tree.tree_root as AnimationNodeBlendTree
 	assert(not blend_tree.has_node(&"LowerLeftSwing") and not blend_tree.has_node(&"LowerRightSwing"), "Standing swings must not apply the stepping layer")
 	assert(slide_animation.clip_length(&"SwingLeft") > 1.8 and slide_animation.clip_length(&"SwingRight") > 1.8, "Mixamo swing clips should be imported")
-	print("PASS: HumanF mesh, Mixamo swing clips, planted lower body, 2/4 m/s movement, aerial hold/tap, attached props, Q/E hooks")
+	slide_animation.tree.active = false
+	var swing_player := slide_player.get_node("Model/AnimationPlayer") as AnimationPlayer
+	var swing_skeleton := slide_player.get_node("Model/Skeleton3D") as Skeleton3D
+	var head := swing_skeleton.find_bone("B-head")
+	var forward_head := swing_skeleton.get_bone_global_rest(head).basis.get_rotation_quaternion()
+	for side in ["Left", "Right"]:
+		swing_player.play("humanf/Swing" + side)
+		for sample in 76:
+			var time := float(sample) / 40.0
+			swing_player.seek(time, true)
+			swing_skeleton.force_update_all_bone_transforms()
+			var head_rotation := swing_skeleton.get_bone_global_pose(head).basis.get_rotation_quaternion()
+			assert(rad_to_deg(head_rotation.angle_to(forward_head)) < 1.0, "%s swing turns the head at %.1fs" % [side, time])
+	print("PASS: HumanF mesh, forward-facing swing head, planted lower body, 2/4 m/s movement, aerial hold/tap, attached props, Q/E hooks")
 	current_scene = null
 	stage.queue_free()
 	for i in 5:

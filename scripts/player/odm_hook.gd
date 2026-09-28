@@ -90,7 +90,7 @@ func fire(
 	anchor_point = hit.position
 	_anchor_body = null
 	var collider := hit.collider as Node3D
-	if collider is CharacterBody3D:
+	if collider is CharacterBody3D or collider is AnimatableBody3D:
 		_anchor_body = collider
 		_anchor_local = collider.global_transform.affine_inverse() * hit.position
 	cable_length = origin.distance_to(anchor_point)

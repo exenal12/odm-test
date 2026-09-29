@@ -1,28 +1,28 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://bson7u27t8xy6"]
 
-[ext_resource type="Script" path="res://scripts/ui/odm_hud.gd" id="1_hud"]
-[ext_resource type="Script" path="res://scripts/ui/reel_icon.gd" id="2_reel_icon"]
-[ext_resource type="Theme" path="res://scenes/ui/hud_theme.tres" id="3_theme"]
-[ext_resource type="Script" path="res://scripts/ui/reticle.gd" id="4_reticle"]
-[ext_resource type="Script" path="res://scripts/ui/hook_indicator.gd" id="5_hook"]
-[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="6_minimap"]
-[ext_resource type="Script" path="res://scripts/ui/refill_markers.gd" id="7_refill_markers"]
+[ext_resource type="Script" uid="uid://cxcoiad1icffo" path="res://scripts/ui/odm_hud.gd" id="1_hud"]
+[ext_resource type="Script" uid="uid://c83dj68xtpgij" path="res://scripts/ui/reel_icon.gd" id="2_reel_icon"]
+[ext_resource type="Theme" uid="uid://bqtyfw1pvkvgm" path="res://scenes/ui/hud_theme.tres" id="3_theme"]
+[ext_resource type="Script" uid="uid://d3sg1wkl07xk2" path="res://scripts/ui/reticle.gd" id="4_reticle"]
+[ext_resource type="Script" uid="uid://oqsveh64rco5" path="res://scripts/ui/hook_indicator.gd" id="5_hook"]
+[ext_resource type="Script" uid="uid://davmgbjfmxop6" path="res://scripts/ui/minimap.gd" id="6_minimap"]
+[ext_resource type="Script" uid="uid://c82lfgr8arls6" path="res://scripts/ui/refill_markers.gd" id="7_refill_markers"]
 
-[node name="ODMHUD" type="CanvasLayer" groups=["odm_hud"]]
+[node name="ODMHUD" type="CanvasLayer" unique_id=1065344453 groups=["odm_hud"]]
 layer = 10
 script = ExtResource("1_hud")
 
-[node name="Root" type="Control" parent="."]
+[node name="Root" type="Control" parent="." unique_id=245142044]
 layout_mode = 3
-theme = ExtResource("3_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+theme = ExtResource("3_theme")
 
-[node name="RefillMarkers" type="Control" parent="Root"]
+[node name="RefillMarkers" type="Control" parent="Root" unique_id=1278166580]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -31,8 +31,9 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("7_refill_markers")
+show_distance = 40.0
 
-[node name="BottomLeft" type="VBoxContainer" parent="Root"]
+[node name="BottomLeft" type="VBoxContainer" parent="Root" unique_id=573230066]
 layout_mode = 1
 anchors_preset = 2
 anchor_top = 1.0
@@ -45,65 +46,62 @@ grow_vertical = 0
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="ReelPanel" type="PanelContainer" parent="Root/BottomLeft"]
+[node name="ReelPanel" type="PanelContainer" parent="Root/BottomLeft" unique_id=1058235173]
 layout_mode = 2
 size_flags_horizontal = 0
 mouse_filter = 2
 
-[node name="ReelRow" type="HBoxContainer" parent="Root/BottomLeft/ReelPanel"]
+[node name="ReelRow" type="HBoxContainer" parent="Root/BottomLeft/ReelPanel" unique_id=2046909422]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="ReelIcon" type="Control" parent="Root/BottomLeft/ReelPanel/ReelRow"]
+[node name="ReelIcon" type="Control" parent="Root/BottomLeft/ReelPanel/ReelRow" unique_id=2115442588]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(28, 28)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("2_reel_icon")
 
-[node name="ReelStatus" type="Label" parent="Root/BottomLeft/ReelPanel/ReelRow"]
+[node name="ReelStatus" type="Label" parent="Root/BottomLeft/ReelPanel/ReelRow" unique_id=1460789794]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 text = "REEL ON"
 
-[node name="GasPanel" type="PanelContainer" parent="Root/BottomLeft"]
+[node name="GasPanel" type="PanelContainer" parent="Root/BottomLeft" unique_id=1733808647]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="VBox" type="VBoxContainer" parent="Root/BottomLeft/GasPanel"]
+[node name="VBox" type="VBoxContainer" parent="Root/BottomLeft/GasPanel" unique_id=1351899916]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="GasLabel" type="Label" parent="Root/BottomLeft/GasPanel/VBox"]
+[node name="GasLabel" type="Label" parent="Root/BottomLeft/GasPanel/VBox" unique_id=455168211]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 text = "GAS 100%"
 
-[node name="GasBar" type="ProgressBar" parent="Root/BottomLeft/GasPanel/VBox"]
+[node name="GasBar" type="ProgressBar" parent="Root/BottomLeft/GasPanel/VBox" unique_id=770042037]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 18)
 layout_mode = 2
 mouse_filter = 2
-max_value = 100.0
 value = 100.0
 show_percentage = false
 
-[node name="Hooks" type="HBoxContainer" parent="Root/BottomLeft/GasPanel/VBox"]
+[node name="Hooks" type="HBoxContainer" parent="Root/BottomLeft/GasPanel/VBox" unique_id=87546639]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="LeftHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks"]
+[node name="LeftHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks" unique_id=875385219]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("5_hook")
 
-[node name="RightHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks"]
+[node name="RightHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks" unique_id=404705037]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
@@ -111,7 +109,7 @@ mouse_filter = 2
 script = ExtResource("5_hook")
 mirrored = true
 
-[node name="HealthPanel" type="PanelContainer" parent="Root"]
+[node name="HealthPanel" type="PanelContainer" parent="Root" unique_id=72405241]
 custom_minimum_size = Vector2(0, 72)
 layout_mode = 1
 offset_left = 24.0
@@ -120,23 +118,22 @@ offset_right = 280.0
 offset_bottom = 88.0
 mouse_filter = 2
 
-[node name="VBox" type="VBoxContainer" parent="Root/HealthPanel"]
+[node name="VBox" type="VBoxContainer" parent="Root/HealthPanel" unique_id=1951163903]
 layout_mode = 2
 mouse_filter = 2
 alignment = 1
 
-[node name="HealthLabel" type="Label" parent="Root/HealthPanel/VBox"]
+[node name="HealthLabel" type="Label" parent="Root/HealthPanel/VBox" unique_id=265266707]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 text = "HEALTH 100"
 
-[node name="BarStack" type="Control" parent="Root/HealthPanel/VBox"]
+[node name="BarStack" type="Control" parent="Root/HealthPanel/VBox" unique_id=1825405300]
 custom_minimum_size = Vector2(0, 18)
 layout_mode = 2
 mouse_filter = 2
 
-[node name="HealthGhost" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack"]
+[node name="HealthGhost" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack" unique_id=228509021]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -146,11 +143,10 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 theme_type_variation = &"GhostBar"
-max_value = 100.0
 value = 100.0
 show_percentage = false
 
-[node name="HealthBar" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack"]
+[node name="HealthBar" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack" unique_id=866411356]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -160,11 +156,10 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 theme_type_variation = &"HealthBar"
-max_value = 100.0
 value = 100.0
 show_percentage = false
 
-[node name="TopRight" type="VBoxContainer" parent="Root"]
+[node name="TopRight" type="VBoxContainer" parent="Root" unique_id=877747199]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
@@ -177,39 +172,35 @@ grow_horizontal = 0
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="Minimap" type="Control" parent="Root/TopRight"]
+[node name="Minimap" type="Control" parent="Root/TopRight" unique_id=1229011536]
 custom_minimum_size = Vector2(160, 160)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("6_minimap")
 
-[node name="KillRow" type="HBoxContainer" parent="Root"]
+[node name="KillRow" type="HBoxContainer" parent="Root" unique_id=33327345]
 layout_mode = 1
 offset_left = 24.0
 offset_top = 102.0
 offset_right = 280.0
 offset_bottom = 132.0
 mouse_filter = 2
-alignment = 0
 theme_override_constants/separation = 8
 
-[node name="KillTitle" type="Label" parent="Root/KillRow"]
+[node name="KillTitle" type="Label" parent="Root/KillRow" unique_id=94901212]
 layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "TITANS SLAIN"
 
-[node name="KillCount" type="Label" parent="Root/KillRow"]
+[node name="KillCount" type="Label" parent="Root/KillRow" unique_id=1538819209]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 22
 text = "0"
 
-[node name="EscapePanel" type="PanelContainer" parent="Root"]
+[node name="EscapePanel" type="PanelContainer" parent="Root" unique_id=1225958781]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -226,20 +217,19 @@ grow_horizontal = 2
 grow_vertical = 0
 mouse_filter = 2
 
-[node name="VBox" type="VBoxContainer" parent="Root/EscapePanel"]
+[node name="VBox" type="VBoxContainer" parent="Root/EscapePanel" unique_id=936574098]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="EscapeLabel" type="Label" parent="Root/EscapePanel/VBox"]
+[node name="EscapeLabel" type="Label" parent="Root/EscapePanel/VBox" unique_id=77733685]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.25, 0.15, 1)
 theme_override_font_sizes/font_size = 26
 text = "ATTACK TO ESCAPE"
 horizontal_alignment = 1
 
-[node name="EscapeBar" type="ProgressBar" parent="Root/EscapePanel/VBox"]
+[node name="EscapeBar" type="ProgressBar" parent="Root/EscapePanel/VBox" unique_id=2076253362]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 20)
 layout_mode = 2
@@ -248,7 +238,7 @@ max_value = 1.0
 step = 0.001
 show_percentage = false
 
-[node name="DamageFlash" type="ColorRect" parent="Root"]
+[node name="DamageFlash" type="ColorRect" parent="Root" unique_id=1463293879]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 15
@@ -259,7 +249,7 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.8, 0.05, 0.05, 0)
 
-[node name="DeathScreen" type="ColorRect" parent="Root"]
+[node name="DeathScreen" type="ColorRect" parent="Root" unique_id=1499829369]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -270,7 +260,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.05, 0, 0, 0.82)
 
-[node name="Center" type="VBoxContainer" parent="Root/DeathScreen"]
+[node name="Center" type="VBoxContainer" parent="Root/DeathScreen" unique_id=1385694314]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
@@ -285,7 +275,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/separation = 16
 
-[node name="DiedLabel" type="Label" parent="Root/DeathScreen/Center"]
+[node name="DiedLabel" type="Label" parent="Root/DeathScreen/Center" unique_id=2121154615]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.8, 0.14, 0.1, 1)
 theme_override_constants/outline_size = 6
@@ -293,12 +283,12 @@ theme_override_font_sizes/font_size = 84
 text = "YOU DIED"
 horizontal_alignment = 1
 
-[node name="RestartButton" type="Button" parent="Root/DeathScreen/Center"]
+[node name="RestartButton" type="Button" parent="Root/DeathScreen/Center" unique_id=756066809]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Restart (Enter)"
 
-[node name="Reticle" type="Control" parent="Root"]
+[node name="Reticle" type="Control" parent="Root" unique_id=884657342]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 8
@@ -315,8 +305,9 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("4_reticle")
 
-[node name="HintLabel" type="Label" parent="Root"]
+[node name="HintLabel" type="Label" parent="Root" unique_id=913339676]
 unique_name_in_owner = true
+modulate = Color(1, 1, 1, 0.65)
 layout_mode = 1
 anchors_preset = 3
 anchor_left = 1.0
@@ -329,8 +320,6 @@ offset_right = -24.0
 offset_bottom = -24.0
 grow_horizontal = 0
 grow_vertical = 0
-mouse_filter = 2
-modulate = Color(1, 1, 1, 0.65)
 theme_override_font_sizes/font_size = 14
 text = "Q/LMB Left Hook  |  E/RMB Right Hook
 Shift Boost (air/hooked)  |  R Toggle reel

@@ -7,11 +7,15 @@ const PALETTE_PATH := "res://scenes/player/animations/humanf_palette.tres"
 const ACTION := &"interact"
 ## Height of the kneeling knee joint; about the knee mesh's radius so it rests on the deck.
 const KNEE_HEIGHT := 0.06
-const CANISTER_RADIUS := 0.11
-## Straps stand slightly proud of the body, so stacked canisters rest on them.
-const CANISTER_BAND_RADIUS := 0.116
-const CANISTER_LENGTH := 0.58
-const PILE_X := 0.3
+const CANISTER_SCENE := preload("res://scenes/props/gas_canister.tscn")
+## Radius of the canister's leather straps, which stand proud of the body so stacked canisters rest on them.
+const CANISTER_BAND_RADIUS := 0.0535
+## Canister extents along its axis (domed base to valve wheel).
+const CANISTER_BOTTOM := -0.18
+const CANISTER_TOP := 0.22
+## Supply crate the pile sits on, sized so the top canister stays within the kneeling NPC's reach.
+const CRATE_SIZE := Vector3(0.4, 0.34, 0.48)
+const PILE_X := 0.29
 const PILE_Z := 0.05
 ## Soldiers hook the trunk this far above the deck...
 const CLIMB_ANCHOR_HEIGHT := 12.0
@@ -248,85 +252,63 @@ func _reach(upper: String, middle: String, end: String, target: Vector3, pole: V
 	_aim(middle, end, root + dir * d)
 
 
-## Stacks lying canisters in a 3-2-1 pyramid beside the NPC's left knee.
+## Stacks lying ODM gas canisters in a 3-2-1 pyramid on a supply crate beside the NPC's left knee.
 func _build_canisters() -> void:
 	var pile := Node3D.new()
 	pile.name = "GasCanisters"
 	add_child(pile)
-	var parts := _canister_parts()
 	var step := CANISTER_BAND_RADIUS * 2.0
+	var center_z := PILE_Z + (CANISTER_BOTTOM + CANISTER_TOP) * 0.5
+	var crate_center := Vector3(PILE_X + step, CRATE_SIZE.y * 0.5, center_z)
+	_build_crate(pile, crate_center)
 	# Row centers rise by r * sqrt(3) when each canister rests in the groove of two below.
 	var rise := CANISTER_BAND_RADIUS * sqrt(3.0)
+	var base := CRATE_SIZE.y + CANISTER_BAND_RADIUS
 	var index := 0
 	for row in 3:
 		for i in 3 - row:
-			var canister := _canister(parts)
+			var canister := CANISTER_SCENE.instantiate() as Node3D
 			canister.position = Vector3(PILE_X + step * (float(i) + float(row) * 0.5),
-				CANISTER_BAND_RADIUS + rise * float(row), PILE_Z + [0.0, 0.03, -0.025][index % 3])
-			canister.rotation = Vector3(PI * 0.5, 0.0, 0.0)
+				base + rise * float(row), PILE_Z + [0.0, 0.02, -0.015][index % 3])
+			# Lying valve-forward, each turned a little differently about its own axis.
+			canister.basis = Basis(Vector3.RIGHT, PI * 0.5) * Basis(Vector3.UP, [0.4, -0.9, 2.1][index % 3])
 			pile.add_child(canister)
 			index += 1
-	_pile_top = Vector3(PILE_X + step, CANISTER_BAND_RADIUS * 2.0 + rise * 2.0, PILE_Z)
+	_pile_top = Vector3(PILE_X + step, base + CANISTER_BAND_RADIUS + rise * 2.0, PILE_Z)
 
 
-## Shared meshes and materials: steel body with rounded ends, leather straps, brass neck, green valve.
-func _canister_parts() -> Dictionary:
-	var steel := StandardMaterial3D.new()
-	steel.albedo_color = Color(0.58, 0.61, 0.63)
-	steel.metallic = 0.45
-	steel.roughness = 0.4
-	var leather := StandardMaterial3D.new()
-	leather.albedo_color = Color(0.3, 0.2, 0.12)
-	leather.roughness = 0.8
-	var brass := StandardMaterial3D.new()
-	brass.albedo_color = Color(0.74, 0.57, 0.26)
-	brass.metallic = 0.5
-	brass.roughness = 0.35
-	var valve := StandardMaterial3D.new()
-	valve.albedo_color = Color(0.3, 0.75, 0.32)
-	valve.emission_enabled = true
-	valve.emission = Color(0.1, 0.6, 0.15)
-	valve.emission_energy_multiplier = 0.8
-	var body := CapsuleMesh.new()
-	body.radius = CANISTER_RADIUS
-	body.height = CANISTER_LENGTH
-	body.radial_segments = 16
-	body.rings = 4
-	var band := CylinderMesh.new()
-	band.top_radius = CANISTER_BAND_RADIUS
-	band.bottom_radius = CANISTER_BAND_RADIUS
-	band.height = 0.035
-	band.radial_segments = 16
-	var neck := CylinderMesh.new()
-	neck.top_radius = 0.028
-	neck.bottom_radius = 0.04
-	neck.height = 0.06
-	var cap := CylinderMesh.new()
-	cap.top_radius = 0.034
-	cap.bottom_radius = 0.034
-	cap.height = 0.03
-	return {"steel": steel, "leather": leather, "brass": brass, "valve": valve,
-		"body": body, "band": band, "neck": neck, "cap": cap}
+## Wooden crate with darker corner posts and a rim around the lid.
+func _build_crate(parent: Node3D, center: Vector3) -> void:
+	var wood := StandardMaterial3D.new()
+	wood.albedo_color = Color(0.45, 0.32, 0.19)
+	wood.roughness = 0.9
+	var trim := StandardMaterial3D.new()
+	trim.albedo_color = Color(0.28, 0.19, 0.11)
+	trim.roughness = 0.9
+	var body := BoxMesh.new()
+	body.size = CRATE_SIZE - Vector3(0.01, 0.0, 0.01)
+	_box(parent, body, wood, center)
+	var post := BoxMesh.new()
+	post.size = Vector3(0.04, CRATE_SIZE.y, 0.04)
+	var half := CRATE_SIZE * 0.5 - Vector3(0.015, 0.0, 0.015)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_box(parent, post, trim, center + Vector3(half.x * sx, 0.0, half.z * sz))
+	var rim_x := BoxMesh.new()
+	rim_x.size = Vector3(CRATE_SIZE.x, 0.03, 0.03)
+	var rim_z := BoxMesh.new()
+	rim_z.size = Vector3(0.03, 0.03, CRATE_SIZE.z)
+	var top := center.y + CRATE_SIZE.y * 0.5 - 0.015
+	for s in [-1.0, 1.0]:
+		_box(parent, rim_x, trim, Vector3(center.x, top, center.z + half.z * s))
+		_box(parent, rim_z, trim, Vector3(center.x + half.x * s, top, center.z))
 
 
-## One canister along its local Y axis; the valve end is +Y.
-func _canister(parts: Dictionary) -> Node3D:
-	var root := Node3D.new()
-	root.name = "Canister"
-	_part(root, parts.body, parts.steel, 0.0)
-	for y in [-0.11, 0.11]:
-		_part(root, parts.band, parts.leather, y)
-	var tip := CANISTER_LENGTH * 0.5
-	_part(root, parts.neck, parts.brass, tip + 0.02)
-	_part(root, parts.cap, parts.valve, tip + 0.065)
-	return root
-
-
-func _part(parent: Node3D, mesh: Mesh, material: Material, y: float) -> void:
+func _box(parent: Node3D, mesh: Mesh, material: Material, pos: Vector3) -> void:
 	var part := MeshInstance3D.new()
 	part.mesh = mesh
 	part.material_override = material
-	part.position.y = y
+	part.position = pos
 	parent.add_child(part)
 
 

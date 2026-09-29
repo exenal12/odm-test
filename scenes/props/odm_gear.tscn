@@ -5,10 +5,10 @@
 [node name="ODMGear" type="Node3D"]
 
 [node name="LeftSocket" type="Marker3D" parent="."]
-position = Vector3(-0.28, 0.95, 0.05)
+position = Vector3(0.28, 0.95, 0.05)
 
 [node name="RightSocket" type="Marker3D" parent="."]
-position = Vector3(0.28, 0.95, 0.05)
+position = Vector3(-0.28, 0.95, 0.05)
 
 [node name="LeftHook" type="Node3D" parent="."]
 script = ExtResource("1_hook")

@@ -1,31 +1,294 @@
 [gd_scene format=3]
 
-[sub_resource type="StandardMaterial3D" id="metal"]
-albedo_color = Color(0.2, 0.22, 0.25, 1)
-metallic = 0.7
+[ext_resource type="PackedScene" path="res://scenes/props/gas_canister.tscn" id="1_canister"]
+
+[sub_resource type="StandardMaterial3D" id="steel"]
+albedo_color = Color(0.66, 0.68, 0.71, 1)
+metallic = 0.6
 roughness = 0.35
 
-[sub_resource type="BoxMesh" id="housing"]
-size = Vector3(0.32, 0.16, 0.17)
+[sub_resource type="StandardMaterial3D" id="gunmetal"]
+albedo_color = Color(0.16, 0.17, 0.19, 1)
+metallic = 0.7
+roughness = 0.4
 
-[sub_resource type="CylinderMesh" id="tank"]
-top_radius = 0.065
-bottom_radius = 0.065
-height = 0.33
+[sub_resource type="StandardMaterial3D" id="leather"]
+albedo_color = Color(0.3, 0.18, 0.1, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="brass"]
+albedo_color = Color(0.74, 0.56, 0.26, 1)
+metallic = 0.9
+roughness = 0.35
+
+[sub_resource type="StandardMaterial3D" id="wire"]
+albedo_color = Color(0.42, 0.43, 0.45, 1)
+metallic = 0.6
+roughness = 0.55
+
+[sub_resource type="TorusMesh" id="belt"]
+inner_radius = 0.18
+outer_radius = 0.2
+rings = 32
+ring_segments = 8
+
+[sub_resource type="BoxMesh" id="buckle"]
+size = Vector3(0.05, 0.042, 0.012)
+
+[sub_resource type="BoxMesh" id="back_plate"]
+size = Vector3(0.2, 0.1, 0.02)
+
+[sub_resource type="CylinderMesh" id="core"]
+top_radius = 0.05
+bottom_radius = 0.05
+height = 0.2
+radial_segments = 24
+rings = 1
+
+[sub_resource type="CylinderMesh" id="reel_flange"]
+top_radius = 0.068
+bottom_radius = 0.068
+height = 0.01
+radial_segments = 24
+rings = 1
+
+[sub_resource type="CylinderMesh" id="reel_drum"]
+top_radius = 0.058
+bottom_radius = 0.058
+height = 0.036
+radial_segments = 24
+rings = 1
+
+[sub_resource type="CylinderMesh" id="reel_hub"]
+top_radius = 0.02
+bottom_radius = 0.02
+height = 0.06
+radial_segments = 16
+rings = 1
+
+[sub_resource type="CylinderMesh" id="nozzle_collar"]
+top_radius = 0.026
+bottom_radius = 0.026
+height = 0.014
+radial_segments = 16
+rings = 1
+
+[sub_resource type="CylinderMesh" id="nozzle"]
+top_radius = 0.022
+bottom_radius = 0.04
+height = 0.07
+radial_segments = 16
+rings = 1
+
+[sub_resource type="BoxMesh" id="strut"]
+size = Vector3(0.03, 0.03, 0.213)
+
+[sub_resource type="BoxMesh" id="launcher_housing"]
+size = Vector3(0.055, 0.055, 0.07)
+
+[sub_resource type="CylinderMesh" id="launcher_barrel"]
+top_radius = 0.022
+bottom_radius = 0.022
+height = 0.1
+radial_segments = 16
+rings = 1
+
+[sub_resource type="CylinderMesh" id="launcher_muzzle"]
+top_radius = 0.027
+bottom_radius = 0.027
+height = 0.016
+radial_segments = 16
+rings = 1
+
+[sub_resource type="BoxMesh" id="hip_bracket"]
+size = Vector3(0.04, 0.14, 0.05)
+
+[sub_resource type="BoxMesh" id="blade_box"]
+size = Vector3(0.07, 0.11, 0.42)
+
+[sub_resource type="BoxMesh" id="blade_box_lid"]
+size = Vector3(0.076, 0.012, 0.42)
+
+[sub_resource type="BoxMesh" id="blade_box_cap"]
+size = Vector3(0.076, 0.116, 0.012)
+
+[sub_resource type="CylinderMesh" id="gas_pipe"]
+top_radius = 0.009
+bottom_radius = 0.009
+height = 0.157
+radial_segments = 8
+rings = 1
 
 [node name="ODMGearVisual" type="Node3D"]
 
-[node name="Housing" type="MeshInstance3D" parent="."]
-position = Vector3(0, -0.02, 0.13)
-mesh = SubResource("housing")
-surface_material_override/0 = SubResource("metal")
+[node name="Belt" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 2, 0, 0, 0, 0.7, 0, 0, -0.005)
+mesh = SubResource("belt")
+surface_material_override/0 = SubResource("leather")
 
-[node name="LeftTank" type="MeshInstance3D" parent="."]
-position = Vector3(-0.19, -0.01, 0.06)
-mesh = SubResource("tank")
-surface_material_override/0 = SubResource("metal")
+[node name="Buckle" type="MeshInstance3D" parent="Belt"]
+transform = Transform3D(1, 0, 0, 0, 0.5, 0, 0, 0, 1.4286, 0, 0, 0.2)
+mesh = SubResource("buckle")
+surface_material_override/0 = SubResource("brass")
 
-[node name="RightTank" type="MeshInstance3D" parent="."]
-position = Vector3(0.19, -0.01, 0.06)
-mesh = SubResource("tank")
-surface_material_override/0 = SubResource("metal")
+[node name="BackUnit" type="Node3D" parent="."]
+
+[node name="BackPlate" type="MeshInstance3D" parent="BackUnit"]
+position = Vector3(0, -0.01, -0.15)
+mesh = SubResource("back_plate")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Core" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -0.01, -0.2)
+mesh = SubResource("core")
+surface_material_override/0 = SubResource("steel")
+
+[node name="NozzleCollar" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(1, 0, 0, 0, 0.866, -0.5, 0, 0.5, 0.866, 0, -0.0602, -0.208)
+mesh = SubResource("nozzle_collar")
+surface_material_override/0 = SubResource("brass")
+
+[node name="Nozzle" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(1, 0, 0, 0, 0.866, -0.5, 0, 0.5, 0.866, 0, -0.0896, -0.225)
+mesh = SubResource("nozzle")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LeftReelInner" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.1, -0.01, -0.2)
+mesh = SubResource("reel_flange")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LeftReelDrum" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.12, -0.01, -0.2)
+mesh = SubResource("reel_drum")
+surface_material_override/0 = SubResource("wire")
+
+[node name="LeftReelOuter" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.14, -0.01, -0.2)
+mesh = SubResource("reel_flange")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LeftReelHub" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0.12, -0.01, -0.2)
+mesh = SubResource("reel_hub")
+surface_material_override/0 = SubResource("brass")
+
+[node name="RightReelInner" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.1, -0.01, -0.2)
+mesh = SubResource("reel_flange")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="RightReelDrum" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.12, -0.01, -0.2)
+mesh = SubResource("reel_drum")
+surface_material_override/0 = SubResource("wire")
+
+[node name="RightReelOuter" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.14, -0.01, -0.2)
+mesh = SubResource("reel_flange")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="RightReelHub" type="MeshInstance3D" parent="BackUnit"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -0.12, -0.01, -0.2)
+mesh = SubResource("reel_hub")
+surface_material_override/0 = SubResource("brass")
+
+[node name="LeftSide" type="Node3D" parent="."]
+
+[node name="Strut" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(0.6585, 0, 0.7526, 0, 1, 0, -0.7526, 0, 0.6585, 0.2, -0.005, -0.12)
+mesh = SubResource("strut")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LauncherHousing" type="MeshInstance3D" parent="LeftSide"]
+position = Vector3(0.28, 0, -0.05)
+mesh = SubResource("launcher_housing")
+surface_material_override/0 = SubResource("steel")
+
+[node name="LauncherBarrel" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.28, 0, 0)
+mesh = SubResource("launcher_barrel")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LauncherMuzzle" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0.28, 0, 0.05)
+mesh = SubResource("launcher_muzzle")
+surface_material_override/0 = SubResource("brass")
+
+[node name="HipBracket" type="MeshInstance3D" parent="LeftSide"]
+position = Vector3(0.215, -0.08, -0.03)
+mesh = SubResource("hip_bracket")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="BladeBox" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, 0.27, -0.19, -0.07)
+mesh = SubResource("blade_box")
+surface_material_override/0 = SubResource("steel")
+
+[node name="BladeBoxLid" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, 0.27, -0.1336, -0.0779)
+mesh = SubResource("blade_box_lid")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="BladeBoxCap" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, 0.27, -0.1615, 0.133)
+mesh = SubResource("blade_box_cap")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Tank" parent="LeftSide" instance=ExtResource("1_canister")]
+transform = Transform3D(0, 0, 1, 0.9903, 0.1392, 0, -0.1392, 0.9903, 0, 0.275, -0.0959, -0.0832)
+
+[node name="GasPipe" type="MeshInstance3D" parent="LeftSide"]
+transform = Transform3D(-0.3154, -0.9228, -0.2214, -0.949, 0.3067, 0.0736, 0, 0.2333, -0.9724, 0.2025, -0.0941, -0.2233)
+mesh = SubResource("gas_pipe")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="RightSide" type="Node3D" parent="."]
+
+[node name="Strut" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(0.6585, 0, -0.7526, 0, 1, 0, 0.7526, 0, 0.6585, -0.2, -0.005, -0.12)
+mesh = SubResource("strut")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LauncherHousing" type="MeshInstance3D" parent="RightSide"]
+position = Vector3(-0.28, 0, -0.05)
+mesh = SubResource("launcher_housing")
+surface_material_override/0 = SubResource("steel")
+
+[node name="LauncherBarrel" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -0.28, 0, 0)
+mesh = SubResource("launcher_barrel")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="LauncherMuzzle" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -0.28, 0, 0.05)
+mesh = SubResource("launcher_muzzle")
+surface_material_override/0 = SubResource("brass")
+
+[node name="HipBracket" type="MeshInstance3D" parent="RightSide"]
+position = Vector3(-0.215, -0.08, -0.03)
+mesh = SubResource("hip_bracket")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="BladeBox" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, -0.27, -0.19, -0.07)
+mesh = SubResource("blade_box")
+surface_material_override/0 = SubResource("steel")
+
+[node name="BladeBoxLid" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, -0.27, -0.1336, -0.0779)
+mesh = SubResource("blade_box_lid")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="BladeBoxCap" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(1, 0, 0, 0, 0.9903, 0.1392, 0, -0.1392, 0.9903, -0.27, -0.1615, 0.133)
+mesh = SubResource("blade_box_cap")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Tank" parent="RightSide" instance=ExtResource("1_canister")]
+transform = Transform3D(0, 0, -1, -0.9903, 0.1392, 0, 0.1392, 0.9903, 0, -0.275, -0.0959, -0.0832)
+
+[node name="GasPipe" type="MeshInstance3D" parent="RightSide"]
+transform = Transform3D(-0.3154, 0.9228, 0.2214, 0.949, 0.3067, 0.0736, 0, 0.2333, -0.9724, -0.2025, -0.0941, -0.2233)
+mesh = SubResource("gas_pipe")
+surface_material_override/0 = SubResource("gunmetal")

@@ -1,0 +1,205 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="steel"]
+albedo_color = Color(0.66, 0.68, 0.71, 1)
+metallic = 0.6
+roughness = 0.35
+
+[sub_resource type="StandardMaterial3D" id="gunmetal"]
+albedo_color = Color(0.16, 0.17, 0.19, 1)
+metallic = 0.7
+roughness = 0.4
+
+[sub_resource type="StandardMaterial3D" id="leather"]
+albedo_color = Color(0.3, 0.18, 0.1, 1)
+roughness = 0.85
+
+[sub_resource type="StandardMaterial3D" id="brass"]
+albedo_color = Color(0.74, 0.56, 0.26, 1)
+metallic = 0.9
+roughness = 0.35
+
+[sub_resource type="StandardMaterial3D" id="paint"]
+albedo_color = Color(0.2, 0.36, 0.22, 1)
+metallic = 0.2
+roughness = 0.6
+
+[sub_resource type="StandardMaterial3D" id="gauge_face"]
+albedo_color = Color(0.92, 0.9, 0.82, 1)
+roughness = 0.5
+
+[sub_resource type="CylinderMesh" id="body"]
+top_radius = 0.05
+bottom_radius = 0.05
+height = 0.27
+radial_segments = 24
+rings = 1
+cap_top = false
+cap_bottom = false
+
+[sub_resource type="SphereMesh" id="bottom_dome"]
+radius = 0.05
+height = 0.06
+radial_segments = 24
+rings = 8
+
+[sub_resource type="SphereMesh" id="shoulder"]
+radius = 0.05
+height = 0.07
+radial_segments = 24
+rings = 8
+
+[sub_resource type="CylinderMesh" id="seam"]
+top_radius = 0.0515
+bottom_radius = 0.0515
+height = 0.008
+radial_segments = 24
+rings = 1
+
+[sub_resource type="CylinderMesh" id="stripe"]
+top_radius = 0.0506
+bottom_radius = 0.0506
+height = 0.03
+radial_segments = 24
+rings = 1
+
+[sub_resource type="CylinderMesh" id="strap"]
+top_radius = 0.0535
+bottom_radius = 0.0535
+height = 0.018
+radial_segments = 24
+rings = 1
+
+[sub_resource type="BoxMesh" id="buckle"]
+size = Vector3(0.016, 0.024, 0.008)
+
+[sub_resource type="CylinderMesh" id="neck"]
+top_radius = 0.013
+bottom_radius = 0.016
+height = 0.03
+radial_segments = 12
+rings = 1
+
+[sub_resource type="BoxMesh" id="valve_block"]
+size = Vector3(0.03, 0.022, 0.03)
+
+[sub_resource type="TorusMesh" id="valve_wheel"]
+inner_radius = 0.011
+outer_radius = 0.017
+rings = 16
+ring_segments = 6
+
+[sub_resource type="CylinderMesh" id="valve_stem"]
+top_radius = 0.004
+bottom_radius = 0.004
+height = 0.016
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="outlet"]
+top_radius = 0.006
+bottom_radius = 0.006
+height = 0.026
+radial_segments = 8
+rings = 1
+
+[sub_resource type="CylinderMesh" id="gauge"]
+top_radius = 0.011
+bottom_radius = 0.011
+height = 0.007
+radial_segments = 12
+rings = 1
+
+[sub_resource type="CylinderMesh" id="gauge_glass"]
+top_radius = 0.009
+bottom_radius = 0.009
+height = 0.001
+radial_segments = 12
+rings = 1
+
+[node name="GasCanister" type="Node3D"]
+
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.015, 0)
+mesh = SubResource("body")
+surface_material_override/0 = SubResource("steel")
+
+[node name="BottomDome" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.15, 0)
+mesh = SubResource("bottom_dome")
+surface_material_override/0 = SubResource("steel")
+
+[node name="Shoulder" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.12, 0)
+mesh = SubResource("shoulder")
+surface_material_override/0 = SubResource("steel")
+
+[node name="BottomSeam" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.15, 0)
+mesh = SubResource("seam")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="TopSeam" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.12, 0)
+mesh = SubResource("seam")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Stripe" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.015, 0)
+mesh = SubResource("stripe")
+surface_material_override/0 = SubResource("paint")
+
+[node name="StrapRear" type="MeshInstance3D" parent="."]
+position = Vector3(0, -0.095, 0)
+mesh = SubResource("strap")
+surface_material_override/0 = SubResource("leather")
+
+[node name="BuckleRear" type="MeshInstance3D" parent="StrapRear"]
+position = Vector3(0, 0, 0.055)
+mesh = SubResource("buckle")
+surface_material_override/0 = SubResource("brass")
+
+[node name="StrapFront" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.065, 0)
+mesh = SubResource("strap")
+surface_material_override/0 = SubResource("leather")
+
+[node name="BuckleFront" type="MeshInstance3D" parent="StrapFront"]
+position = Vector3(0, 0, 0.055)
+mesh = SubResource("buckle")
+surface_material_override/0 = SubResource("brass")
+
+[node name="Neck" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.165, 0)
+mesh = SubResource("neck")
+surface_material_override/0 = SubResource("brass")
+
+[node name="ValveBlock" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.188, 0)
+mesh = SubResource("valve_block")
+surface_material_override/0 = SubResource("brass")
+
+[node name="ValveStem" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.205, 0)
+mesh = SubResource("valve_stem")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="ValveWheel" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.212, 0)
+mesh = SubResource("valve_wheel")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Outlet" type="MeshInstance3D" parent="."]
+transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, -0.025, 0.188, 0)
+mesh = SubResource("outlet")
+surface_material_override/0 = SubResource("gunmetal")
+
+[node name="Gauge" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0.188, 0.018)
+mesh = SubResource("gauge")
+surface_material_override/0 = SubResource("brass")
+
+[node name="GaugeFace" type="MeshInstance3D" parent="Gauge"]
+position = Vector3(0, 0.0036, 0)
+mesh = SubResource("gauge_glass")
+surface_material_override/0 = SubResource("gauge_face")

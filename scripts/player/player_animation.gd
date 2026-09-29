@@ -97,6 +97,7 @@ func _build_tree() -> void:
 		previous = layer_name
 	blend.connect_node(&"output", 0, previous)
 	skeleton.add_child(HeadStabilizer.new())
+	skeleton.add_child(HandGrip.new())
 	tree = AnimationTree.new()
 	tree.name = "AnimationTree"
 	add_child(tree)

@@ -647,3 +647,16 @@ Soldiers now grapple up to the platforms with the same hook-and-reel physics the
 ![Refined gas canister pile beside the kneeling NPC](/tmp/canisters.png)
 
 The climb is in `scripts/npc/soldier.gd`, and the route finder and canisters are in `scripts/world/gas_supplier.gd`. To change the climb geometry, edit `CLIMB_ANCHOR_HEIGHT` and `CLIMB_START_DISTANCE` at the top of `gas_supplier.gd`. They depend on each other: a lower anchor needs a farther start, or the reel line clips the deck.
+
+## User
+
+where do i modify the HUD for the "gas refill pointer"? i want to change the distance at which it's visible
+
+## Assistant
+
+The marker is the `RefillMarkers` node in `scenes/ui/odm_hud.tscn`, and its script is `scripts/ui/refill_markers.gd`.
+
+- **Visible distance:** In `scripts/ui/refill_markers.gd`, change `show_distance` (default 90 m). It's an `@export`, so you can also select the `RefillMarkers` node under `ODMHUD/Root` in the editor and edit it in the Inspector. You'd need to add it to the node in the scene file for the Inspector value to override the default.
+- **Fade-in:** `fade_distance` (default 20 m) sets how far inside `show_distance` the marker takes to reach full opacity. If you make `show_distance` much smaller, lower this too.
+
+The minimap is separate. Its range is `world_range` (150 m) in `scripts/ui/minimap.gd`.

@@ -87,6 +87,8 @@ var _left_hook: ODMHook
 var _right_hook: ODMHook
 var _left_socket: Marker3D
 var _right_socket: Marker3D
+var _left_muzzle: Node3D
+var _right_muzzle: Node3D
 var _boosting: bool = false
 var _reel_boost_bonus: float = 0.0
 var reel_enabled: bool = true
@@ -104,12 +106,12 @@ func setup(player: CharacterBody3D, camera: Camera3D, gear_root: Node3D) -> void
 	if _left_socket == null:
 		_left_socket = Marker3D.new()
 		_left_socket.name = "LeftSocket"
-		_left_socket.position = Vector3(-0.25, 0.9, 0.05)
+		_left_socket.position = Vector3(0.25, 0.9, 0.05)
 		gear_root.add_child(_left_socket)
 	if _right_socket == null:
 		_right_socket = Marker3D.new()
 		_right_socket.name = "RightSocket"
-		_right_socket.position = Vector3(0.25, 0.9, 0.05)
+		_right_socket.position = Vector3(-0.25, 0.9, 0.05)
 		gear_root.add_child(_right_socket)
 
 	_left_hook = gear_root.get_node_or_null("LeftHook") as ODMHook
@@ -126,9 +128,27 @@ func setup(player: CharacterBody3D, camera: Camera3D, gear_root: Node3D) -> void
 		_right_hook.cable_color = Color(0.2, 0.18, 0.16)
 		gear_root.add_child(_right_hook)
 
+	_bind_launcher_muzzles()
 	gas_changed.emit(gas, gas_max)
 	hooks_changed.emit(false, false)
 	reel_mode_changed.emit(reel_enabled)
+
+
+## Cables leave from the gear visual's launcher muzzles when the character wears
+## one, since those follow the hip bone while the sockets stay fixed to the body.
+func _bind_launcher_muzzles() -> void:
+	var visual := _player.find_child("ODMGearVisual", true, false)
+	if visual == null:
+		return
+	var muzzles := visual.find_children("LauncherMuzzle", "Node3D", true, false)
+	if muzzles.size() < 2:
+		return
+	var left := muzzles[0] as Node3D
+	var right := muzzles[1] as Node3D
+	var swapped := left.global_position.distance_squared_to(_left_socket.global_position) \
+			> right.global_position.distance_squared_to(_left_socket.global_position)
+	_left_muzzle = right if swapped else left
+	_right_muzzle = left if swapped else right
 
 
 ## Updates the camera used to aim newly fired hooks and boost direction.
@@ -335,10 +355,14 @@ func _aim_direction() -> Vector3:
 
 ## Returns the world-space position of the selected gear socket.
 func _socket_global(is_left: bool) -> Vector3:
+	var muzzle := _left_muzzle if is_left else _right_muzzle
+	if is_instance_valid(muzzle):
+		return muzzle.global_position
 	var socket := _left_socket if is_left else _right_socket
 	if socket:
 		return socket.global_position
-	return _player.global_position + Vector3((-0.25 if is_left else 0.25), 0.9, 0.0)
+	# Characters face +Z, so their left side is +X.
+	return _player.global_position + _player.global_basis * Vector3((0.25 if is_left else -0.25), 0.9, 0.0)
 
 
 ## Shortens all attached cables while reel mode is enabled.

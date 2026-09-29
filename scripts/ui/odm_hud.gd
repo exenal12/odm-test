@@ -16,6 +16,10 @@ extends CanvasLayer
 @onready var death_screen: Control = %DeathScreen
 @onready var restart_button: Button = %RestartButton
 
+@onready var escape_panel: Control = %EscapePanel
+@onready var escape_label: Label = %EscapeLabel
+@onready var escape_bar: ProgressBar = %EscapeBar
+
 var _odm: ODMController
 var _health: PlayerHealth
 var _low_health_alpha: float = 0.0
@@ -38,6 +42,17 @@ func bind_health(health: PlayerHealth) -> void:
 	health.damaged.connect(_on_damaged)
 	health.died.connect(_on_died)
 	_on_health_changed(health.health, health.max_health)
+
+
+## Shows the escape prompt while a titan holds the player.
+func bind_player(player: Node) -> void:
+	player.grab_progress.connect(_on_grab_progress)
+
+
+func _on_grab_progress(active: bool, progress: float, hits_left: int) -> void:
+	escape_panel.visible = active
+	escape_bar.value = progress
+	escape_label.text = "ATTACK TO ESCAPE  (%d)" % hits_left
 
 
 func _on_health_changed(current: float, maximum: float) -> void:

@@ -28,6 +28,7 @@ close_range = 0.0
 suspicious_threshold = 0.664
 knockback = 15.0
 knockback_up = 3.0
+grab_tick = 1.0
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=230009567]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)

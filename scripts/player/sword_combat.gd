@@ -32,6 +32,7 @@ var _pending: Array[bool] = [false, false]
 var _pending_elapsed: Array[float] = [0.0, 0.0]
 var _holding: Array[bool] = [false, false]
 var _hit_targets: Array[Dictionary] = [{}, {}]
+var _grab_struck: Array[bool] = [false, false]
 
 
 func _ready() -> void:
@@ -52,7 +53,7 @@ func _process(delta: float) -> void:
 	_cooldown_right = maxf(0.0, _cooldown_right - delta)
 	for side in 2:
 		var action: StringName = &"sword_left" if side == 0 else &"sword_right"
-		var grounded := player.is_on_floor()
+		var grounded: bool = player.is_on_floor() or player.get(&"grabbed") == true
 		if Input.is_action_just_pressed(action):
 			if grounded:
 				_start_attack(side)
@@ -77,6 +78,10 @@ func _process(delta: float) -> void:
 			var duration := animation_controller.clip_length(&"SwingLeft" if side == 0 else &"SwingRight")
 			var active := _attack_elapsed[side] >= duration * hit_start_fraction and _attack_elapsed[side] <= duration * hit_end_fraction
 			_hitbox(side).monitoring = active
+			if active and not _grab_struck[side]:
+				_grab_struck[side] = true
+				if player.get(&"grabbed") == true:
+					player.strike_grabber(damage)
 			if _attack_elapsed[side] >= duration:
 				_attack_elapsed[side] = -1.0
 				_hitbox(side).monitoring = false
@@ -92,6 +97,7 @@ func _start_attack(side: int) -> void:
 	if not animation_controller.has_clip(&"SwingLeft" if side == 0 else &"SwingRight"):
 		return
 	_attack_elapsed[side] = 0.0
+	_grab_struck[side] = false
 	_hit_targets[side].clear()
 	_hitbox(side).monitoring = false
 	animation_controller.attack(side == 0, swing_speed)

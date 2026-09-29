@@ -6,7 +6,7 @@ extends CharacterBody3D
 signal died(titan: Titan)
 signal hit_player(player: CharacterBody3D, damage: float)
 
-enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, DEAD }
+enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, DEAD }
 
 const NAPE_BONE := "B-neck"
 ## Nape offset from the neck bone in skeleton space (unscaled model units, -Z is the back).
@@ -60,6 +60,18 @@ const SEGMENTS := [
 @export var knockback: float = 30.0
 @export var knockback_up: float = 12.0
 
+@export_group("Grab")
+## Chance that an attack is a grab instead of a swipe.
+@export_range(0.0, 1.0) var grab_chance: float = 0.35
+## Crush damage dealt every grab_tick seconds while holding the player.
+@export var grab_damage: float = 8.0
+@export var grab_tick: float = 0.5
+## Damage the gripping arm must take before the titan lets go.
+@export var hand_health_max: float = 80.0
+@export var grab_cooldown: float = 6.0
+## Speed the player is thrown away at when freed.
+@export var release_speed: float = 12.0
+
 @export_group("Debug")
 @export var show_debug: bool = true
 
@@ -93,7 +105,12 @@ var _attack_length: float = 1.0
 var _attack_landed: bool = false
 var _hand_bones: Array[int] = []
 var _debug_label: Label3D
-
+var _pending_grab: bool = false
+var _grab_cooldown_left: float = 0.0
+var _grab_tick_left: float = 0.0
+var _hand_health: float = 0.0
+var _grab_bone: int = -1
+var _last_hit_damage: float = 20.0
 
 func _ready() -> void:
 	_neck_bone = skeleton.find_bone(NAPE_BONE)
@@ -157,13 +174,15 @@ func _physics_process(delta: float) -> void:
 		return
 	_sense(delta)
 	_cooldown_left = maxf(0.0, _cooldown_left - delta)
+	_grab_cooldown_left = maxf(0.0, _grab_cooldown_left - delta)
 	match state:
 		State.WANDER: _state_wander(delta)
 		State.INVESTIGATE: _state_investigate(delta)
 		State.ALERT: _state_alert(delta)
 		State.CHASE: _state_chase(delta)
 		State.ATTACK: _state_attack(delta)
-	if state != State.ATTACK and state != State.DEAD:
+		State.GRAB: _state_grab(delta)
+	if state != State.ATTACK and state != State.GRAB and state != State.DEAD:
 		_play_locomotion()
 	_finish_move(delta)
 
@@ -244,6 +263,8 @@ func _set_state(new_state: State) -> void:
 	if new_state == State.ATTACK:
 		_attack_time = 0.0
 		_attack_landed = false
+		_pending_grab = _grab_cooldown_left <= 0.0 and player.get(&"grabbed") != true \
+				and randf() < grab_chance
 		animation_player.play(&"titan/Attack", 0.3)
 		animation_player.speed_scale = attack_speed
 
@@ -321,25 +342,91 @@ func _state_attack(delta: float) -> void:
 	fraction = _attack_time / _attack_length
 	if not _attack_landed and fraction >= hit_start_fraction and fraction <= hit_end_fraction:
 		_try_land_hit()
+		if state != State.ATTACK:
+			return
 	if _attack_time >= _attack_length:
 		_cooldown_left = attack_cooldown
 		_set_state(State.CHASE)
 
 
 func _try_land_hit() -> void:
+	var bone := _hand_in_reach()
+	if bone < 0:
+		return
+	_attack_landed = true
+	if _pending_grab:
+		_begin_grab(bone)
+		return
+	var away := _flat_dir(player.global_position - global_position)
+	player.velocity += away * knockback + Vector3.UP * knockback_up
+	if player.has_method(&"take_damage"):
+		player.take_damage(attack_damage, self)
+	hit_player.emit(player, attack_damage)
+
+
+## Returns the first hand bone within reach of the player, or -1.
+func _hand_in_reach() -> int:
 	var center := player.global_position + Vector3.UP * 0.9
 	var xform := skeleton.global_transform
 	for bone in _hand_bones:
 		var hand := xform * skeleton.get_bone_global_pose(bone).origin
 		var offset := hand - center
 		if Vector2(offset.x, offset.z).length() <= hit_radius and absf(offset.y) <= hit_vertical_reach:
-			_attack_landed = true
-			var away := _flat_dir(player.global_position - global_position)
-			player.velocity += away * knockback + Vector3.UP * knockback_up
-			if player.has_method(&"take_damage"):
-				player.take_damage(attack_damage, self)
-			hit_player.emit(player, attack_damage)
-			return
+			return bone
+	return -1
+
+
+# --- Grab ---
+
+func _begin_grab(bone: int) -> void:
+	_grab_bone = bone
+	_hand_health = hand_health_max
+	_grab_tick_left = grab_tick
+	_set_state(State.GRAB)
+	animation_player.pause()
+	var sword := player.get_node_or_null("SwordCombat")
+	if sword != null:
+		_last_hit_damage = maxf(1.0, sword.damage)
+	player.on_grabbed(self)
+	_hold_player()
+	_report_grab_progress()
+
+
+func _report_grab_progress() -> void:
+	var hits_left := int(ceil(maxf(_hand_health, 0.0) / _last_hit_damage))
+	player.set_grab_progress(1.0 - clampf(_hand_health / hand_health_max, 0.0, 1.0), hits_left)
+
+
+func _state_grab(delta: float) -> void:
+	_stop(delta)
+	if player == null or not is_instance_valid(player) or player.get(&"grabbed") != true:
+		_end_grab(false)
+		return
+	_hold_player()
+	_grab_tick_left -= delta
+	if _grab_tick_left <= 0.0:
+		_grab_tick_left += grab_tick
+		player.take_damage(grab_damage, self, true)
+		hit_player.emit(player, grab_damage)
+
+
+func _hold_player() -> void:
+	var hand := skeleton.global_transform * skeleton.get_bone_global_pose(_grab_bone).origin
+	player.global_position = hand - Vector3.UP * 0.9
+
+
+## Frees the player (if still held) and returns to chasing.
+func _end_grab(throw_player: bool) -> void:
+	if player != null and is_instance_valid(player) and player.get(&"grabbed") == true:
+		var impulse := Vector3.ZERO
+		if throw_player:
+			impulse = _flat_dir(player.global_position - global_position) * release_speed \
+					+ Vector3.UP * release_speed * 0.5
+		player.on_released(impulse)
+	_grab_cooldown_left = grab_cooldown
+	_cooldown_left = attack_cooldown
+	if state == State.GRAB:
+		_set_state(State.CHASE)
 
 
 # --- Movement helpers ---
@@ -419,7 +506,7 @@ func _update_segments() -> void:
 # --- Damage ---
 
 ## Called by SwordCombat for any node the blade overlaps.
-func on_sword_hit(target: Node3D, _damage: float) -> void:
+func on_sword_hit(target: Node3D, damage: float) -> void:
 	if state == State.DEAD:
 		return
 	if target == nape:
@@ -428,7 +515,21 @@ func on_sword_hit(target: Node3D, _damage: float) -> void:
 		_flash_deflect()
 
 
+## Called by the held player's sword swings; always damages the gripping hand.
+func on_grab_struck(damage: float) -> void:
+	if state != State.GRAB:
+		return
+	_hand_health -= damage
+	_last_hit_damage = maxf(1.0, damage)
+	_report_grab_progress()
+	_flash_deflect()
+	if _hand_health <= 0.0:
+		_end_grab(true)
+
+
 func _die() -> void:
+	if state == State.GRAB:
+		_end_grab(false)
 	alive = false
 	state = State.DEAD
 	body_collider.set_deferred("disabled", true)

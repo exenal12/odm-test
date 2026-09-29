@@ -123,6 +123,44 @@ max_value = 100.0
 value = 100.0
 show_percentage = false
 
+[node name="EscapePanel" type="PanelContainer" parent="Root"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -200.0
+offset_right = 160.0
+offset_bottom = -130.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+
+[node name="VBox" type="VBoxContainer" parent="Root/EscapePanel"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="EscapeLabel" type="Label" parent="Root/EscapePanel/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_font_sizes/font_size = 20
+text = "ATTACK TO ESCAPE"
+horizontal_alignment = 1
+
+[node name="EscapeBar" type="ProgressBar" parent="Root/EscapePanel/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 20)
+layout_mode = 2
+mouse_filter = 2
+max_value = 1.0
+step = 0.001
+show_percentage = false
+
 [node name="DamageFlash" type="ColorRect" parent="Root"]
 unique_name_in_owner = true
 layout_mode = 1

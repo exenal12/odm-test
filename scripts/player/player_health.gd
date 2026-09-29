@@ -23,10 +23,12 @@ func _process(delta: float) -> void:
 	_invulnerable_left = maxf(0.0, _invulnerable_left - delta)
 
 
-func take_damage(amount: float, source: Node = null) -> void:
-	if dead or _invulnerable_left > 0.0 or amount <= 0.0:
+## ignore_invulnerable is for damage over time, which must not be blocked by hit frames.
+func take_damage(amount: float, source: Node = null, ignore_invulnerable: bool = false) -> void:
+	if dead or amount <= 0.0 or (_invulnerable_left > 0.0 and not ignore_invulnerable):
 		return
-	_invulnerable_left = invulnerable_time
+	if not ignore_invulnerable:
+		_invulnerable_left = invulnerable_time
 	health = maxf(0.0, health - amount)
 	damaged.emit(amount, source)
 	health_changed.emit(health, max_health)

@@ -95,6 +95,9 @@ extends CharacterBody3D
 @onready var player_audio: Node = $PlayerAudio
 @onready var health: PlayerHealth = $PlayerHealth
 
+## Emitted while held by a titan; progress is 0..1 toward escape.
+signal grab_progress(active: bool, progress: float, hits_left: int)
+
 enum SlidePhase { NONE, START, LOOP, EXIT }
 enum AirPhase { NONE, START, FALL, LAND }
 
@@ -118,6 +121,9 @@ var _standing_capsule_radius: float = 0.34814453
 var _standing_shape_y: float = 0.93436825
 var _hud: Node
 var _dead: bool = false
+## True while a titan is holding the player.
+var grabbed: bool = false
+var _grabber: Node3D
 
 const LIB_HUMANF: StringName = &"humanf"
 const CROUCH_HEIGHT_SCALE: float = 0.6
@@ -158,13 +164,53 @@ func _bind_hud() -> void:
 		_hud = get_tree().current_scene.get_node_or_null("ODMHUD")
 	if _hud and _hud.has_method("bind_odm"):
 		_hud.bind_odm(odm)
+	if _hud and _hud.has_method("bind_player"):
+		_hud.bind_player(self)
 	if _hud and _hud.has_method("bind_health"):
 		_hud.bind_health(health)
 
 
 ## Entry point for enemies: forwards damage to the health component.
-func take_damage(amount: float, source: Node = null) -> void:
-	health.take_damage(amount, source)
+func take_damage(amount: float, source: Node = null, ignore_invulnerable: bool = false) -> void:
+	health.take_damage(amount, source, ignore_invulnerable)
+
+
+## Called by a titan that catches the player; movement is driven by the titan until release.
+func on_grabbed(titan: Node3D) -> void:
+	if _dead or grabbed:
+		return
+	grabbed = true
+	_grabber = titan
+	odm.release_hooks()
+	if _is_sliding:
+		_finish_slide()
+	_is_crouching = false
+	_apply_capsule_stance()
+	velocity = Vector3.ZERO
+	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
+	_air_phase = AirPhase.FALL
+	_play_library_animation(LIB_HUMANF, jump_fall_animation)
+
+
+## Called by SwordCombat when a swing's hit window opens while held.
+func strike_grabber(damage: float) -> void:
+	if grabbed and is_instance_valid(_grabber) and _grabber.has_method(&"on_grab_struck"):
+		_grabber.on_grab_struck(damage)
+
+
+func set_grab_progress(progress: float, hits_left: int) -> void:
+	grab_progress.emit(true, progress, hits_left)
+
+
+func on_released(impulse: Vector3) -> void:
+	if not grabbed:
+		return
+	grabbed = false
+	grab_progress.emit(false, 0.0, 0)
+	_grabber = null
+	velocity = impulse
+	_was_on_floor = false
+	_current_anim = &""
 
 
 func _on_damaged(_amount: float, _source: Node) -> void:
@@ -175,6 +221,7 @@ func _on_damaged(_amount: float, _source: Node) -> void:
 ## Stops player control: hooks released, swords and ODM input disabled.
 func _on_died() -> void:
 	_dead = true
+	on_released(Vector3.ZERO)
 	odm.release_hooks()
 	odm.set_process_input(false)
 	sword_combat.set_process(false)
@@ -233,6 +280,13 @@ func _physics_process(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
 		move_and_slide()
 		return
+
+	if grabbed:
+		if is_instance_valid(_grabber):
+			velocity = Vector3.ZERO
+			_update_camera_follow_offsets()
+			return
+		on_released(Vector3.ZERO)
 
 	var odm_active := odm != null and odm.is_active()
 

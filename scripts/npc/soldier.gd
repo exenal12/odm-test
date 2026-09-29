@@ -27,6 +27,14 @@ signal died(soldier: Soldier)
 ## Minimum distance kept from the titan while circling around to its back.
 @export var flank_radius: float = 30.0
 
+@export_group("Tactics")
+## Seconds spent in position before the first hook is fired.
+@export var reaction_time: float = 1.5
+## Only strike while the titan is focused on something other than this soldier.
+@export var require_distraction: bool = true
+## Most soldiers allowed hooked onto one titan at once. 0 means unlimited.
+@export var max_attackers: int = 1
+
 @export_group("Attack")
 @export var strike_range: float = 5.0
 @export_range(0.0, 1.0) var strike_chance: float = 0.7
@@ -40,6 +48,8 @@ const AIM_OFFSETS: Array[Vector3] = [
 	Vector3.ZERO, Vector3(0.0, -2.5, 0.0), Vector3(0.0, -5.0, 0.0), Vector3(0.0, 1.5, 0.0),
 ]
 const EYE_HEIGHT := 1.4
+## Longest time spent retreating after a missed strike before trying again.
+const REFLANK_TIMEOUT := 12.0
 
 @onready var odm: ODMController = $ODMController
 @onready var odm_gear: Node3D = $ODMGear
@@ -56,6 +66,8 @@ var _retarget_timer: float = 0.0
 var _hit_timer: float = -1.0
 var _aim_attempt: int = 0
 var _check_pending: bool = false
+var _reaction_left: float = -1.0
+var _reflank_left: float = 0.0
 
 
 func _ready() -> void:
@@ -111,7 +123,7 @@ func _physics_process(delta: float) -> void:
 	var walk_dir := Vector3.ZERO
 	if _target_valid():
 		var nape := target.nape.global_position
-		_think(nape)
+		_think(nape, delta)
 		walk_dir = _ground_direction()
 	else:
 		odm.ai_steer = Vector3.ZERO
@@ -146,6 +158,8 @@ func _pick_target() -> void:
 			best = titan
 	if best != target:
 		_aim_attempt = 0
+		_reflank_left = 0.0
+		_reaction_left = -1.0
 	target = best
 
 
@@ -154,7 +168,7 @@ func _eye() -> Vector3:
 
 
 ## Decides hook actions and strikes for this frame.
-func _think(nape: Vector3) -> void:
+func _think(nape: Vector3, delta: float) -> void:
 	var dist := _eye().distance_to(nape)
 	var hooked := odm.is_hooked()
 
@@ -182,8 +196,50 @@ func _think(nape: Vector3) -> void:
 		elif behind and dist <= reattach_range and _hook_timer <= 0.0 \
 				and odm.get_anchor().distance_to(nape) > strike_range + 2.0:
 			_fire_at(nape, 0)
-	elif behind and dist <= hook_range and _hook_timer <= 0.0:
+		return
+
+	_update_reflank(delta)
+	var can_hook := behind and dist <= hook_range and _reflank_left <= 0.0 and _slot_free()
+	if not can_hook:
+		_reaction_left = -1.0
+		return
+	if _reaction_left < 0.0:
+		_reaction_left = reaction_time
+	_reaction_left -= delta
+	if _reaction_left <= 0.0 and _hook_timer <= 0.0:
 		_fire_at(nape, _aim_attempt)
+
+
+## Clears the re-flank state once the soldier has backed off far enough.
+func _update_reflank(delta: float) -> void:
+	if _reflank_left <= 0.0:
+		return
+	_reflank_left -= delta
+	var offset := global_position - target.global_position
+	offset.y = 0.0
+	if offset.length() >= flank_radius * 0.8:
+		_reflank_left = 0.0
+
+
+## True when fewer than max_attackers other soldiers are hooked onto the target.
+func _slot_free() -> bool:
+	if max_attackers <= 0:
+		return true
+	var count := 0
+	for node in get_tree().get_nodes_in_group("soldier"):
+		var other := node as Soldier
+		if other != null and other != self and other.alive and other.target == target \
+				and other.odm.is_hooked():
+			count += 1
+	return count < max_attackers
+
+
+## A failed strike: let go and retreat to flank again.
+func _miss() -> void:
+	odm.release_hooks()
+	_reflank_left = REFLANK_TIMEOUT
+	_reaction_left = -1.0
+	_hook_timer = hook_retry
 
 
 ## True when the soldier is inside the rear cone of the titan.
@@ -209,6 +265,8 @@ func _fire_at(nape: Vector3, attempt: int) -> void:
 func _begin_strike() -> void:
 	if _strike_timer > 0.0 or _hit_timer >= 0.0:
 		return
+	if require_distraction and target.target == self:
+		return
 	_strike_timer = strike_cooldown
 	_hit_timer = strike_hit_delay
 	var left := randf() < 0.5
@@ -227,10 +285,12 @@ func _update_strike(delta: float) -> void:
 		return
 	var nape := target.nape.global_position
 	if _eye().distance_to(nape) > strike_range * 1.5 or randf() > strike_chance:
+		_miss()
 		return
 	var victim := target
 	victim.on_sword_hit(victim.nape, strike_damage, global_position)
 	if victim.alive:
+		_miss()
 		return
 	odm.release_hooks()
 	titan_killed.emit(victim)
@@ -239,11 +299,16 @@ func _update_strike(delta: float) -> void:
 ## Horizontal direction toward the titan, following the navmesh when it exists.
 func _ground_direction() -> Vector3:
 	var goal := target.global_position
-	if not _behind_titan():
+	var retreating := _reflank_left > 0.0
+	if retreating:
+		var away := global_position - goal
+		away.y = 0.0
+		goal += (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * flank_radius
+	elif not _behind_titan():
 		goal = _flank_point()
 	var to_goal := goal - global_position
 	to_goal.y = 0.0
-	if _behind_titan() and to_goal.length() < min_ground_distance:
+	if not retreating and _behind_titan() and to_goal.length() < min_ground_distance:
 		return Vector3.ZERO
 	if to_goal.length() < 2.0:
 		return Vector3.ZERO

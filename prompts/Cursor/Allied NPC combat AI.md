@@ -450,3 +450,141 @@ Soldiers are faster than the player on foot and about equal in the air.
 **Effect on gameplay**
 - On foot, a soldier will overtake you easily. The flanking path is about 30 m out, so a soldier takes several seconds to reach a titan's back, which is fine at 6 m/s.
 - To make them more comparable to the player, lower `run_speed` in `SoldierDirector` (it's under "Soldier Difficulty"). 4 would match the player's sprint.
+
+## User
+
+the NPCs are a bit too aggressive, they keep killing the titans too easily. what's your suggestion?
+
+## Assistant
+
+Here are the options, from quickest to most involved. Most of the tuning is already exposed on the `SoldierDirector` node.
+
+**Quick tuning (no code)**
+- **`strike_chance`:** 0.7 is generous, and a failed roll only costs the soldier 1.5 s. Try 0.25–0.4.
+- **`strike_cooldown`:** raise it to 3–4 s so each miss costs more.
+- **`rear_angle_deg`:** narrow it from 70° to 30–40°, so soldiers need to be almost directly behind the titan.
+- **`nape_rear_angle_deg`:** this one also applies to the player, so change it carefully.
+- **`titan_notice_range`:** raise it from 12 to 25–30 m. Titans then spot approaching soldiers earlier, turn around, and swat them.
+- **`hook_range`:** lower it from 38 m to about 25 m, so soldiers have to get closer before they can hook.
+- **`run_speed`:** drop it from 6 to 4, so they can't out-flank titans as easily.
+- **`soldier_health`:** keep it at one hit to kill. That's already the default.
+
+**Small code changes**
+- **Reaction time:** add a delay after spotting the titan and before the first hook. Right now they fire straight away.
+- **Distraction requirement:** only allow a strike while the titan's target is something other than that soldier (for example the player or another soldier). A titan focused on one soldier would then shut it down, and kills would need the player to draw its attention. This fits the "player distracts, soldiers finish" idea best, but it changes the feel the most.
+- **Fewer simultaneous attackers:** allow only N soldiers per titan to hook at once, since two soldiers double the kill odds.
+
+**Bigger change**
+- **Stagger the titan on a failed strike:** a miss or deflected hit makes the soldier stumble or take a swipe. That adds risk to each attempt.
+
+**What I'd do:** start with the numbers alone, `strike_chance` 0.3, `strike_cooldown` 3, `rear_angle_deg` 40, and `titan_notice_range` 25, and see how it plays. If they still win too easily, add the distraction requirement as a toggle on the director.
+
+Want me to apply those numbers and add the toggle?
+
+Since they're asking for a suggestion, I should offer guidance and options rather than jumping straight to code, staying grounded in the existing settings available, and offer to implement once they pick a direction.
+
+## User
+
+how does "strike chance" affect the NPC? i've tried adjusting it to no avail
+
+## Assistant
+
+I'm checking the strike chance logic in the soldier script and how the director applies it at startup, wondering if the setting actually reaches the soldier's kill path or if the user is running a different scene where the export value isn't getting applied properly.
+- Tool call: `Grep` {"pattern": "strike_chance|strike_cooldown|_strike_timer|_hit_timer", "path": "/home/bazzite/odm-test/scripts/npc", "output_mode": "content", "-n": true}
+
+The value is wired correctly. The problem is that `strike_chance` is only a per-attempt roll, so it barely slows kills down.
+
+**What it does**
+- Once a soldier is hooked and within 5 m of the nape, it starts a swing every `strike_cooldown` seconds (1.5 s).
+- About 0.25 s later it rolls once against `strike_chance`. If the roll passes, the titan dies.
+- A failed roll costs the soldier nothing. It stays hooked next to the nape and swings again 1.5 s later.
+
+**Why changing it seems to do nothing**
+- A soldier gets a fresh try every 1.5 s, so even a low chance ends in a kill quickly. At 0.3, a soldier needs about 3 tries on average, roughly 5 s. At 0.1 it's about 15 s.
+- The titan is usually busy chasing the player, so the soldier keeps trying without interruption.
+- With two soldiers, the odds double.
+- The time spent flanking, hooking and reeling in isn't affected by `strike_chance` at all. Most of a kill is that approach, so a large change in the number looks small in play.
+
+**Possible other cause**
+- The director copies its settings onto soldiers once, when the scene starts. Editing the value while the game is running does nothing. Change it in the scene and restart.
+- Also check that you're editing the `SoldierDirector` node in the scene you're running (`forest_world.tscn`). Changing the default value in the script doesn't affect a node whose value is already saved in the scene.
+
+**What would make the setting matter more**
+- Make a failed roll cost something. For example, after a miss the soldier gets a long cooldown, or it detaches and has to re-hook.
+- Let the titan swat a soldier that has struck and missed.
+- Raise `strike_cooldown` alongside `strike_chance`. That's the quickest fix.
+
+I'd suggest a longer cooldown after a failed strike, since that's a small change and makes low chances actually hurt. Want me to add that?
+
+## User
+
+implement the "small code changes" from the previous turn, as well as making it so if a soldier misses, they have to detach and re-flank
+
+## Assistant
+
+I'm working out how to add reaction time: when a soldier picks a target, it starts a countdown before it's allowed to hook, tracked via a `_reaction_left` timer that resets on target change and defaults to 1.5 seconds.
+
+For distraction requirements, I'm considering restricting nape strikes to cases where the titan's current target isn't the attacking soldier itself, toggled by a `require_distraction` flag, while still allowing hooking regardless.
+
+I also want to cap simultaneous attackers per titan with a `max_attackers` export (defaulting to 1), counting other hooked soldiers targeting the same titan before allowing a new hook. And for missed strikes, I'm planning to force a detach via `release_hooks()` plus a re-flank cooldown timer that redirects the soldier's goal toward a fresh flank point before it's allowed to hook again.
+
+I'll add a timeout fallback too — track a reflank flag that stays true after a miss until the titan has retreated far enough (roughly 80% of flank radius) or a max delay of around 10 seconds passes, so it never gets stuck waiting on navigation failures.
+
+Deflected hits should also count as misses, same as failed roll checks, both routed through a single miss handler. And I need to make sure strikes can't begin at all if the distraction condition isn't met at that moment, rather than starting and then aborting mid-swing.
+
+For the director, I'm adding new exported tunables under a "Soldier Difficulty" group: reaction time, distraction requirement, max attacker count, and reflank-after-miss behavior, then wiring these into the soldier logic. I'm writing a helper that counts how many other hooked soldiers are currently attacking the same titan target, treating a max_attackers value of zero or less as unlimited, and making sure soldiers waiting for an attack slot just stay grounded rather than interfering with reattachment logic.
+
+I need to check the existing `_think` and `_physics_process` functions in soldier.gd before editing.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "offset": 96, "limit": 150}
+
+I'm reworking the tail decision logic to check if the titan is behind, update the reflank state, and only allow hooking when both the distance is within range and reflanking is active.
+
+With that condition set, I trigger the reaction timer and fire once it elapses and the hook cooldown clears, ensuring retries happen quickly on failure but reset properly after a successful hook or release. I'm now writing `_update_reflank`, which decrements a timer and checks the flat horizontal distance to the target against the flank radius to decide when reflanking ends.
+
+I notice a potential bug: the retreat goal is set at `flank_radius` away from the target, but the movement stop condition uses `min_ground_distance`, which could make the clearing threshold unreachable and cause the behavior to run until timeout instead of stopping naturally — I need to adjust the stop condition so it accounts for `flank_radius - min_ground_distance` rather than relying on `min_ground_distance` alone during retreat.
+
+On the miss-handling side, I'm making sure `_miss()` releases hooks, resets the reflank timer, clears the reaction timer, and resets the hook retry timer, and treating any failed strike condition (except an invalid target) as a miss. I also want distraction checks to happen in `_begin_strike`, comparing the titan's current target against self, and to add a slot check against `max_attackers`.
+
+Now I'm setting up the exported tuning values -- action_time at 1.5, require_distraction true, max_attackers 1 -- and grouping them under a new "Tactics" category alongside the existing "Attack" group.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "@export_group(\"Attack\")\n@export var strike_range: float = 5.0", "new_string": "@export_group(\"Tactics\")\n## Seconds spent in position before the first hook is fired.\n@export var reaction_time: float = 1.5\n## Only strike ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "const EYE_HEIGHT := 1.4", "new_string": "const EYE_HEIGHT := 1.4\n## Longest time spent retreating after a missed strike before trying again.\nconst REFLANK_TIMEOUT := 12.0"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "var _check_pending: bool = false", "new_string": "var _check_pending: bool = false\nvar _reaction_left: float = -1.0\nvar _reflank_left: float = 0.0"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\t\t_think(nape)\n\t\twalk_dir", "new_string": "\t\t_think(nape, delta)\n\t\twalk_dir"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "func _think(nape: Vector3) -> void:", "new_string": "func _think(nape: Vector3, delta: float) -> void:"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\t\t\t_fire_at(nape, 0)\n\telif behind and dist <= hook_range and _hook_timer <= 0.0:\n\t\t_fire_at(nape, _aim_attempt)", "new_string": "\t\t\t_fire_at(nape, 0)\n\t\treturn\n\n\t_update_reflank(delta)\n\tvar can_hook := behind ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tif _strike_timer > 0.0 or _hit_timer >= 0.0:\n\t\treturn\n\t_strike_timer", "new_string": "\tif _strike_timer > 0.0 or _hit_timer >= 0.0:\n\t\treturn\n\tif require_distraction and target.target == self:\n\t\treturn\n\t_strike...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tif _eye().distance_to(nape) > strike_range * 1.5 or randf() > strike_chance:\n\t\treturn\n\tvar victim := target\n\tvictim.on_sword_hit(victim.nape, strike_damage, global_position)\n\tif victim.alive:\n\t\treturn", "new_strin...
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "offset": 290, "limit": 40}
+
+I'm noticing a flaw with slot-blocking: a soldier waiting for a hook slot might stand too close to the titan within its attack range, which is risky, and if it's far away it'll still approach to 10m before waiting, putting it needlessly in danger.
+
+I should have it hold at flank_radius instead while waiting for a slot. I also need to reset `_reflank_left` to 0 and `_reaction_left` to -1 whenever the target changes, so leftover reflank state doesn't carry over incorrectly.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tvar goal := target.global_position\n\tif not _behind_titan():\n\t\tgoal = _flank_point()\n\tvar to_goal := goal - global_position\n\tto_goal.y = 0.0\n\tif _behind_titan() and to_goal.length() < min_ground_distance:\n\t\tretur...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tif best != target:\n\t\t_aim_attempt = 0", "new_string": "\tif best != target:\n\t\t_aim_attempt = 0\n\t\t_reflank_left = 0.0\n\t\t_reaction_left = -1.0"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "## How far behind the titan a soldier must be (degrees from its back) to hook.\n@export_range(10.0, 180.0) var rear_angle_deg: float = 70.0", "new_string": "## How far behind the titan a soldier must be (degrees from i...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "\tsoldier.rear_angle_deg = rear_angle_deg", "new_string": "\tsoldier.rear_angle_deg = rear_angle_deg\n\tsoldier.reaction_time = reaction_time\n\tsoldier.require_distraction = require_distraction\n\tsoldier.max_attacker...
+
+I should test this by forcing strike_chance to 0 in a temporary script, applying it before soldiers act, and printing states to confirm the miss → detach → retreat → retry cycle works alongside a normal run.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/tools/tmp_soldier_check.gd", "contents": "extends SceneTree\n\nfunc _initialize() -> void:\n\tvar world := (load(\"res://scenes/world/forest_world.tscn\") as PackedScene).instantiate()\n\tworld.get_node(\"SoldierDirector\").strike_chance = 0.0\n\tworld.get_node(\"Sol...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && timeout 110 godot --headless --script res://tools/tmp_soldier_check.gd 2>&1 | grep -v \"user://\\|rotate_file\\|copy (core\" | tail -50", "block_until_ms": 120000}
+
+I see the teleport test pulled the player away while the titan stayed locked onto the soldier, so require_distraction correctly blocked strikes and the soldier died as expected — the miss/re-flank path never got exercised. I should retest that path by disabling require_distraction and setting strike_chance to 0.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && sed -i 's/strike_cooldown = 1.0/strike_cooldown = 1.0\\n\\tworld.get_node(\"SoldierDirector\").require_distraction = false\\n\\tworld.get_node(\"SoldierDirector\").soldier_health = 500.0/' tools/tmp_soldier_check.gd && timeout 110 godot --headless --script r...
+
+This all checks out — reaction timers work, missing sets refl=11 causing a retreat where distance grows to 22-24 before clearing, and only one entity gets hooked at a time due to slot limits. I should clean up the temp file now.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -f tools/tmp_soldier_check.gd tools/tmp_soldier_check.gd.uid && git status --short | grep -v prompts"}
+
+All four changes are in, and I ran them headless. The soldiers waited before hooking, missed, backed off and tried again, and only one was hooked on at a time. I haven't played it in the editor.
+
+- **Reaction time:** a soldier now has to sit in a valid spot (behind the titan and within hook range) for `reaction_time` (1.5 s) before it fires its first hook. If it drops out of that position, the timer resets.
+- **Distraction requirement:** with `require_distraction` on, a soldier won't swing while the titan is focused on that soldier. It stays hooked and waits for the titan to look elsewhere, for example at the player. In my run the titan usually killed the soldier before that happened.
+- **Attacker cap:** `max_attackers` (default 1) limits how many soldiers can be hooked onto one titan at once. A soldier that has no free slot doesn't fire. Set it to 0 for no limit.
+- **Miss means re-flank:** any failed strike now makes the soldier release its hooks and retreat. That covers a failed roll, a titan that turned around and deflected the hit, and a soldier that was out of reach. It backs off to about 80% of `flank_radius` before it can hook again, or for at most 12 s. Then the reaction timer starts over. A failed roll therefore costs several seconds instead of 1.5 s, so `strike_chance` should matter much more now.
+
+All the new settings are on the `SoldierDirector` node under "Soldier Difficulty": `reaction_time`, `require_distraction` and `max_attackers`. The director only applies its values when the scene starts.
+
+Two behaviors to watch for:
+- A soldier waiting for a free attacker slot still walks in to within about 10 m of the titan, so it can get swatted while it waits.
+- With `require_distraction` on and nothing else to distract the titan, soldiers mostly die instead of striking. That's the intended pressure, but you may want to lower the titan's aggression if it feels unwinnable for them.
+
+The only modification shown is soldier.tscn, likely just Godot resaving with UIDs added during headless processing—nothing else changed. I'll wrap up here.

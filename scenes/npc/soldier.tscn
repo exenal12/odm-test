@@ -18,7 +18,10 @@ height = 1.8745117
 collision_layer = 0
 script = ExtResource("2_soldier")
 run_speed = 4.0
-strike_chance = 0.015
+hook_retry = 5.0
+rear_angle_deg = 40.0
+strike_chance = 0.097
+strike_cooldown = 5.0
 
 [node name="Model" parent="." unique_id=782518840 instance=ExtResource("1_model")]
 

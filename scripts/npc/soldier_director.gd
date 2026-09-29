@@ -20,6 +20,12 @@ extends Node3D
 @export var run_speed: float = 6.0
 ## How far behind the titan a soldier must be (degrees from its back) to hook.
 @export_range(10.0, 180.0) var rear_angle_deg: float = 70.0
+## Seconds a soldier waits in position before the first hook.
+@export var reaction_time: float = 1.5
+## Soldiers only strike while the titan is focused on something else.
+@export var require_distraction: bool = true
+## Most soldiers hooked onto one titan at once. 0 means unlimited.
+@export var max_attackers: int = 1
 
 @export_group("Titan Difficulty")
 ## A soldier this close is noticed regardless of facing or line of sight.
@@ -59,6 +65,9 @@ func _apply_soldier(soldier: Soldier) -> void:
 	soldier.hook_range = hook_range
 	soldier.run_speed = run_speed
 	soldier.rear_angle_deg = rear_angle_deg
+	soldier.reaction_time = reaction_time
+	soldier.require_distraction = require_distraction
+	soldier.max_attackers = max_attackers
 
 
 func _apply_titan(titan: Titan) -> void:

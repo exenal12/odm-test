@@ -6,7 +6,11 @@ extends Area3D
 ## If enabled, refill the player's gas immediately upon entering.
 @export var instant_fill_on_enter: bool = false
 
+## Health restored per second while the player remains inside the area.
+@export var heal_per_second: float = 10.0
+
 var _player_odm: ODMController
+var _player_health: PlayerHealth
 
 
 ## Starts tracking player entry and exit so gas can refill only while occupied.
@@ -20,6 +24,8 @@ func _physics_process(delta: float) -> void:
 	if _player_odm == null:
 		return
 	_player_odm.refill_gas(refill_per_second * delta)
+	if _player_health != null:
+		_player_health.heal(heal_per_second * delta)
 
 
 ## Stores the player's ODM controller when the player enters and optionally
@@ -31,6 +37,7 @@ func _on_body_entered(body: Node3D) -> void:
 	if odm == null:
 		return
 	_player_odm = odm
+	_player_health = body.get_node_or_null("PlayerHealth") as PlayerHealth
 	if instant_fill_on_enter:
 		_player_odm.refill_gas()
 
@@ -40,3 +47,4 @@ func _on_body_exited(body: Node3D) -> void:
 	if not body.is_in_group("player"):
 		return
 	_player_odm = null
+	_player_health = null

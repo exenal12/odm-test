@@ -93,6 +93,7 @@ extends CharacterBody3D
 @onready var odm: ODMController = $ODMController
 @onready var odm_gear: Node3D = $ODMGear
 @onready var player_audio: Node = $PlayerAudio
+@onready var health: PlayerHealth = $PlayerHealth
 
 enum SlidePhase { NONE, START, LOOP, EXIT }
 enum AirPhase { NONE, START, FALL, LAND }
@@ -116,6 +117,7 @@ var _standing_capsule_height: float = 1.8745117
 var _standing_capsule_radius: float = 0.34814453
 var _standing_shape_y: float = 0.93436825
 var _hud: Node
+var _dead: bool = false
 
 const LIB_HUMANF: StringName = &"humanf"
 const CROUCH_HEIGHT_SCALE: float = 0.6
@@ -129,6 +131,8 @@ func _ready() -> void:
 	_cache_capsule_defaults()
 	_setup_animations()
 	_setup_odm()
+	health.damaged.connect(_on_damaged)
+	health.died.connect(_on_died)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Camera / pcam are later siblings in world.tscn; resolve after the tree is ready.
 	call_deferred("_resolve_camera_nodes")
@@ -154,11 +158,35 @@ func _bind_hud() -> void:
 		_hud = get_tree().current_scene.get_node_or_null("ODMHUD")
 	if _hud and _hud.has_method("bind_odm"):
 		_hud.bind_odm(odm)
+	if _hud and _hud.has_method("bind_health"):
+		_hud.bind_health(health)
+
+
+## Entry point for enemies: forwards damage to the health component.
+func take_damage(amount: float, source: Node = null) -> void:
+	health.take_damage(amount, source)
+
+
+func _on_damaged(_amount: float, _source: Node) -> void:
+	if player_audio and player_audio.has_method("play_land"):
+		player_audio.play_land()
+
+
+## Stops player control: hooks released, swords and ODM input disabled.
+func _on_died() -> void:
+	_dead = true
+	odm.release_hooks()
+	odm.set_process_input(false)
+	sword_combat.set_process(false)
+	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 ## Handles global player input: mouse capture, escape, camera cycling, and
 ## third-person camera look rotation.
 func _input(event: InputEvent) -> void:
+	if _dead:
+		return
 	# Use _input (not _unhandled_input) so HUD controls at screen center cannot eat look.
 	if event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -197,6 +225,14 @@ func _physics_process(delta: float) -> void:
 		_resolve_camera_nodes()
 		if odm and _camera:
 			odm.set_camera(_camera)
+
+	if _dead:
+		if not is_on_floor():
+			velocity += get_gravity() * gravity_scale * delta
+		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+		move_and_slide()
+		return
 
 	var odm_active := odm != null and odm.is_active()
 

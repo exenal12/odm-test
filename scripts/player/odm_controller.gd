@@ -160,6 +160,17 @@ func refill_gas(amount: float = -1.0) -> void:
 	gas_changed.emit(gas, gas_max)
 
 
+## Detaches both hooks and hides the cables.
+func release_hooks() -> void:
+	for pair in [[_left_hook, true], [_right_hook, false]]:
+		var hook: ODMHook = pair[0]
+		if hook != null and hook.is_attached():
+			hook.detach()
+			hook_detached.emit(pair[1])
+	hooks_changed.emit(false, false)
+	_update_cable_visuals()
+
+
 ## Reports whether the left hook is attached.
 func left_attached() -> bool:
 	return _left_hook != null and _left_hook.is_attached()

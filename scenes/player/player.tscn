@@ -10,6 +10,7 @@
 [ext_resource type="Script" uid="uid://dfnmq3njuafsb" path="res://scripts/player/player_animation.gd" id="8_animation"]
 [ext_resource type="AnimationLibrary" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
+[ext_resource type="Script" path="res://scripts/player/player_health.gd" id="12_health"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_xd2r4"]
@@ -68,5 +69,8 @@ script = ExtResource("8_animation")
 script = ExtResource("7_sword_combat")
 
 [node name="PlayerAudio" parent="." unique_id=369392604 instance=ExtResource("5_audio")]
+
+[node name="PlayerHealth" type="Node" parent="."]
+script = ExtResource("12_health")
 
 [editable path="Model"]

@@ -10,7 +10,58 @@ extends CanvasLayer
 @onready var reel_icon: Control = %ReelIcon
 @onready var reel_status: Label = %ReelStatus
 
+@onready var health_bar: ProgressBar = %HealthBar
+@onready var health_label: Label = %HealthLabel
+@onready var damage_flash: ColorRect = %DamageFlash
+@onready var death_screen: Control = %DeathScreen
+@onready var restart_button: Button = %RestartButton
+
 var _odm: ODMController
+var _health: PlayerHealth
+var _low_health_alpha: float = 0.0
+
+
+func _ready() -> void:
+	death_screen.hide()
+	restart_button.pressed.connect(_restart)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if death_screen.visible and event.is_action_pressed("ui_accept"):
+		_restart()
+
+
+## Binds the HUD to the player's health component.
+func bind_health(health: PlayerHealth) -> void:
+	_health = health
+	health.health_changed.connect(_on_health_changed)
+	health.damaged.connect(_on_damaged)
+	health.died.connect(_on_died)
+	_on_health_changed(health.health, health.max_health)
+
+
+func _on_health_changed(current: float, maximum: float) -> void:
+	health_bar.max_value = maximum
+	health_bar.value = current
+	health_label.text = "HEALTH %d" % int(ceil(current))
+	var ratio := current / maxf(maximum, 1.0)
+	_low_health_alpha = clampf((0.4 - ratio) / 0.4, 0.0, 1.0) * 0.35
+	damage_flash.color.a = maxf(damage_flash.color.a, _low_health_alpha)
+
+
+func _on_damaged(_amount: float, _source: Node) -> void:
+	damage_flash.color.a = 0.5
+	create_tween().tween_property(damage_flash, "color:a", _low_health_alpha, 0.5)
+
+
+func _on_died() -> void:
+	death_screen.show()
+	restart_button.grab_focus()
+
+
+func _restart() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	get_tree().reload_current_scene()
 
 
 ## Binds the HUD to one ODM controller, disconnecting any previous controller

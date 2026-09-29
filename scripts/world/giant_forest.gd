@@ -4,6 +4,7 @@ extends Node3D
 const WORLD_LAYER := 1
 const GRAPPLE_LAYER := 2
 const FOREST_HALF_SIZE := 95.0
+const VISUAL_FLOOR_MARGIN := 5.0
 
 var _rng := RandomNumberGenerator.new()
 var _bark_material: StandardMaterial3D
@@ -47,13 +48,15 @@ func _build_ground() -> void:
 	body.collision_layer = WORLD_LAYER
 	body.collision_mask = 0
 	var mesh := BoxMesh.new()
-	mesh.size = Vector3(FOREST_HALF_SIZE * 2.0, 1.0, FOREST_HALF_SIZE * 2.0)
+	# Keep visible ground beneath the player model when its collider reaches a wall.
+	mesh.size = Vector3((FOREST_HALF_SIZE + VISUAL_FLOOR_MARGIN) * 2.0, 1.0,
+		(FOREST_HALF_SIZE + VISUAL_FLOOR_MARGIN) * 2.0)
 	var visual := MeshInstance3D.new()
 	visual.mesh = mesh
 	visual.material_override = _ground_material
 	body.add_child(visual)
 	var shape := BoxShape3D.new()
-	shape.size = mesh.size
+	shape.size = Vector3(FOREST_HALF_SIZE * 2.0, 1.0, FOREST_HALF_SIZE * 2.0)
 	var collider := CollisionShape3D.new()
 	collider.shape = shape
 	body.add_child(collider)

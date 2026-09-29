@@ -8,10 +8,10 @@
 [ext_resource type="PackedScene" path="res://scenes/props/sword.tscn" id="6_sword"]
 [ext_resource type="Script" uid="uid://buk3pken1u8hv" path="res://scripts/player/sword_combat.gd" id="7_sword_combat"]
 [ext_resource type="Script" uid="uid://dfnmq3njuafsb" path="res://scripts/player/player_animation.gd" id="8_animation"]
-[ext_resource type="AnimationLibrary" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
+[ext_resource type="AnimationLibrary" uid="uid://cy1gf11a4d152" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
-[ext_resource type="Script" path="res://scripts/player/player_health.gd" id="12_health"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
+[ext_resource type="Script" uid="uid://2uvggp58df1c" path="res://scripts/player/player_health.gd" id="12_health"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_xd2r4"]
 radius = 0.34814453
@@ -60,7 +60,9 @@ shape = SubResource("CapsuleShape3D_xd2r4")
 script = ExtResource("3_odm")
 single_hook_arc_ratio = 0.5
 single_hook_arc_damping = 0.4
-gas_reel_drain = 0.0
+gas_boost_drain = 15.0
+gas_reel_drain = 3.0
+look_aim_height = 3.0
 
 [node name="PlayerAnimation" type="Node" parent="." unique_id=899671800]
 script = ExtResource("8_animation")
@@ -70,7 +72,7 @@ script = ExtResource("7_sword_combat")
 
 [node name="PlayerAudio" parent="." unique_id=369392604 instance=ExtResource("5_audio")]
 
-[node name="PlayerHealth" type="Node" parent="."]
+[node name="PlayerHealth" type="Node" parent="." unique_id=228732491]
 script = ExtResource("12_health")
 
 [editable path="Model"]

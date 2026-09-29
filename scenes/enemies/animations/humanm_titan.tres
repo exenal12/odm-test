@@ -1,4 +1,4 @@
-[gd_resource type="AnimationLibrary" format=3]
+[gd_resource type="AnimationLibrary" format=3 uid="uid://bh2f7bjlyqfmx"]
 
 [sub_resource type="Animation" id="Animation_hi46a"]
 resource_name = "HumanM_CombatDamage01"

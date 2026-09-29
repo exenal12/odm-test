@@ -347,7 +347,17 @@ func _update_audio(delta: float) -> void:
 	var moving := horizontal_speed > walk_speed_threshold and not (odm != null and odm.is_hooked())
 	var sprinting := Input.is_action_pressed("sprint") and not _is_crouching
 	if player_audio.has_method("play_footsteps"):
-		player_audio.play_footsteps(delta, moving, sprinting, is_on_floor() and not _is_sliding)
+		player_audio.play_footsteps(delta, moving, sprinting,
+			is_on_floor() and not _is_sliding, _get_floor_collider())
+
+
+## Returns the collider the player is standing on, or null in the air.
+func _get_floor_collider() -> Object:
+	for i in get_slide_collision_count():
+		var collision := get_slide_collision(i)
+		if collision.get_normal().y >= cos(floor_max_angle):
+			return collision.get_collider()
+	return null
 
 
 ## Starts a jump by applying vertical velocity, leaving crouch, and selecting

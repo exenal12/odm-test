@@ -32,7 +32,7 @@ const GARMENT_COLORS := {
 const GARMENT_OFFSETS := {
 	Garment.SKIN: 0.0012,
 	Garment.SHIRT: 0.004,
-	Garment.JACKET: 0.012,
+	Garment.JACKET: 0.016,
 	Garment.PANTS: 0.005,
 	Garment.BOOTS: 0.009,
 	Garment.STRAP: 0.009,
@@ -43,13 +43,35 @@ const BODY_UNDERLAY := Color(0.2, 0.16, 0.13)
 const EDGE_SUBDIVISIONS := 2
 ## Rest-pose landmarks of the HumanF body (T-pose, facing +Z, left side is +X).
 const JACKET_HEM := 1.18
-const COLLAR := 1.47
 const CUFF := 0.565
 const WAIST := 1.0
 const BOOT_TOP := 0.47
 const ARM_START := 0.19
-## Wings of Freedom patches: centre (x, y), size, and whether the patch faces the back.
-const PATCHES := [[0.0, 1.3, 0.15, true], [0.085, 1.335, 0.05, false]]
+## Wings of Freedom patches: centre (x, y), width, and whether the patch faces the back.
+const PATCHES := [[0.0, 1.3, 0.13, true], [0.085, 1.335, 0.042, false]]
+const EMBLEM_TEXTURE := preload("res://assets/textures/survey_corps_emblem.png")
+## Height / width of the emblem image.
+const EMBLEM_ASPECT := 149.0 / 111.0
+## Smoothing passes for the jacket drape, and the closest it may sit to the skin.
+const JACKET_SMOOTHING := 20
+## Axes the jacket envelope is measured around (rest pose).
+const TORSO_AXIS_Z := 0.02
+const ARM_SHOULDER := Vector3(0.16, 1.417, -0.018)
+const ARM_WRIST := Vector3(0.575, 1.39, -0.01)
+## Envelope search window: along the axis (metres) and around it (bins).
+const ENVELOPE_REACH := 0.045
+## Sleeves bridge the mannequin's segmented shoulder and elbow, which are longer.
+const SLEEVE_REACH := 0.08
+const ENVELOPE_ANGLE_BINS := 1
+const JACKET_MIN_GAP := 0.01
+## The neckline follows the neck: skin within this distance of the neck's axis.
+const NECK_RADIUS := 0.08
+const NECK_AXIS_Z := 0.0
+const FRONT_OPENING := 0.045
+const COLLAR_HEIGHT := 0.032
+const COLLAR_BINS := 48
+## Jacket vertices this close to an edge are pulled onto it, so hems run straight.
+const EDGE_SNAP := 0.008
 
 ## Hair grid: columns around the head's vertical axis, rows down from the crown.
 const HAIR_AXIS_Z := 0.035
@@ -63,8 +85,6 @@ const HAIR_THICKNESS := 0.012
 const FACE_ANGLE := 2.23
 
 static var _mesh_cache: Dictionary = {}
-static var _emblem: ImageTexture
-
 
 func _ready() -> void:
 	var model := get_node_or_null(model_path)
@@ -159,8 +179,9 @@ func _build_outfit(source: Array, bones_per_vertex: int) -> Array:
 	var verts: PackedVector3Array = source[Mesh.ARRAY_VERTEX]
 	var normals: PackedVector3Array = source[Mesh.ARRAY_NORMAL]
 	var indices: PackedInt32Array = source[Mesh.ARRAY_INDEX]
-	var cloth := _SurfaceBuilder.new(source, bones_per_vertex)
-	var patches := _SurfaceBuilder.new(source, bones_per_vertex)
+	var drape := _jacket_drape(verts, normals, indices)
+	var cloth := _SurfaceBuilder.new(source, bones_per_vertex, drape)
+	var patches := _SurfaceBuilder.new(source, bones_per_vertex, drape)
 	for t in range(0, indices.size(), 3):
 		var tri := [indices[t], indices[t + 1], indices[t + 2]]
 		var centroid: Vector3 = (verts[tri[0]] + verts[tri[1]] + verts[tri[2]]) / 3.0
@@ -169,13 +190,150 @@ func _build_outfit(source: Array, bones_per_vertex: int) -> Array:
 			if garment == Garment.NONE:
 				continue
 			for i in tri:
-				cloth.add(i, garment, verts[i] + normals[i] * GARMENT_OFFSETS[garment], _color(garment, verts[i]))
-			cloth.close_triangle()
+				var lift: Vector3 = drape[i] if garment == Garment.JACKET else normals[i] * GARMENT_OFFSETS[garment]
+				cloth.add(i, garment, verts[i] + lift, _color(garment, verts[i]))
+			cloth.close_triangle(garment == Garment.JACKET)
 		else:
 			_split(cloth, [cloth.corner(tri[0]), cloth.corner(tri[1]), cloth.corner(tri[2])], EDGE_SUBDIVISIONS)
 		if garment == Garment.JACKET:
-			_add_patch(patches, tri, centroid, verts, normals)
+			_add_patch(patches, tri, centroid, verts, normals, drape)
+	_add_jacket_edges(cloth)
 	return [cloth.arrays(), patches.arrays()]
+
+
+## Per-vertex offset for the jacket. Starting from a plain offset, it is smoothed across
+## the mesh so the jacket bridges the hollows between muscles instead of following
+## them, while never coming closer to the skin than JACKET_MIN_GAP. The hem and cuffs
+## flare out a little so the jacket hangs rather than clings.
+static func _jacket_drape(verts: PackedVector3Array, normals: PackedVector3Array,
+		indices: PackedInt32Array) -> PackedVector3Array:
+	# Weld duplicated seam vertices so smoothing sees one connected surface.
+	var weld := PackedInt32Array()
+	weld.resize(verts.size())
+	var lookup := {}
+	var positions := PackedVector3Array()
+	var welded_normals := PackedVector3Array()
+	for i in verts.size():
+		var key := Vector3i((verts[i] * 100000.0).round())
+		if not lookup.has(key):
+			lookup[key] = positions.size()
+			positions.append(verts[i])
+			welded_normals.append(Vector3.ZERO)
+		weld[i] = lookup[key]
+		welded_normals[weld[i]] += normals[i]
+	var count := positions.size()
+	var neighbours: Array[Array] = []
+	neighbours.resize(count)
+	for w in count:
+		neighbours[w] = []
+	for t in range(0, indices.size(), 3):
+		for k in 3:
+			var a := weld[indices[t + k]]
+			var b := weld[indices[t + (k + 1) % 3]]
+			if not neighbours[a].has(b):
+				neighbours[a].append(b)
+				neighbours[b].append(a)
+	var shell := PackedVector3Array()
+	var active := PackedInt32Array()
+	for w in count:
+		welded_normals[w] = welded_normals[w].normalized()
+		shell.append(positions[w] + welded_normals[w] * GARMENT_OFFSETS[Garment.JACKET])
+		if _garment(positions[w]) == Garment.JACKET:
+			active.append(w)
+	_wrap_in_envelope(positions, active, shell)
+	for _iteration in JACKET_SMOOTHING:
+		var previous := shell.duplicate()
+		for w in active:
+			var around := neighbours[w]
+			if around.is_empty():
+				continue
+			var average := Vector3.ZERO
+			for other in around:
+				average += previous[other]
+			var point := previous[w].lerp(average / around.size(), 0.5)
+			var n := welded_normals[w]
+			var gap := (point - positions[w]).dot(n)
+			if gap < JACKET_MIN_GAP:
+				point += n * (JACKET_MIN_GAP - gap)
+			shell[w] = point
+	for w in active:
+		var p := positions[w]
+		var flare := 0.012 * clampf(1.0 - (p.y - JACKET_HEM) / 0.05, 0.0, 1.0)
+		if p.y > 1.3:
+			flare = maxf(flare, 0.006 * clampf(1.0 - (CUFF - absf(p.x)) / 0.05, 0.0, 1.0))
+		shell[w] += welded_normals[w] * flare
+	var drape := PackedVector3Array()
+	drape.resize(verts.size())
+	for i in verts.size():
+		drape[i] = shell[weld[i]] - positions[weld[i]]
+	return drape
+
+
+## Moves jacket points out to a cloth-like envelope. Around the torso's vertical axis and
+## each arm's axis, the body's reach is recorded per (height along the axis, angle);
+## each point then sits at the largest reach nearby, so the cloth spans from bulge to
+## bulge instead of following each muscle. Shoulders blend between torso and sleeve.
+static func _wrap_in_envelope(positions: PackedVector3Array, active: PackedInt32Array,
+		shell: PackedVector3Array) -> void:
+	var offset: float = GARMENT_OFFSETS[Garment.JACKET]
+	var torso := _EnvelopeGrid.new(JACKET_HEM, 1.52, 32, ENVELOPE_REACH, ENVELOPE_ANGLE_BINS)
+	var arms := [_EnvelopeGrid.new(-0.06, 0.44, 24, SLEEVE_REACH, ENVELOPE_ANGLE_BINS),
+		_EnvelopeGrid.new(-0.06, 0.44, 24, SLEEVE_REACH, ENVELOPE_ANGLE_BINS)]
+	var coords := []
+	for w in active:
+		var p := positions[w]
+		var t := _torso_coords(p)
+		var a := _arm_coords(p)
+		var sleeve := smoothstep(-0.01, 0.06, a.x) if p.y > 1.28 else 0.0
+		# Each grid only sees the points it shapes, so outstretched arms don't widen the torso.
+		if sleeve < 0.99:
+			torso.record(t)
+		if sleeve > 0.01:
+			arms[0 if p.x >= 0.0 else 1].record(a)
+		coords.append([t, a, sleeve])
+	for k in active.size():
+		var w := active[k]
+		var p := positions[w]
+		var t: Vector3 = coords[k][0]
+		var a: Vector3 = coords[k][1]
+		var sleeve: float = coords[k][2]
+		var torso_point := Vector3(0.0, t.x, TORSO_AXIS_Z) \
+				+ Vector3(sin(t.y), 0.0, -cos(t.y)) * (torso.reach(t) + offset)
+		var arm_point := _arm_point(p, a, arms[0 if p.x >= 0.0 else 1].reach(a) + offset)
+		shell[w] = torso_point.lerp(arm_point, sleeve)
+
+
+## (height, angle, radius) around the torso's vertical axis.
+static func _torso_coords(p: Vector3) -> Vector3:
+	var dz := p.z - TORSO_AXIS_Z
+	return Vector3(p.y, atan2(p.x, -dz), sqrt(p.x * p.x + dz * dz))
+
+
+## (distance along the arm from the shoulder, angle, radius) around the arm's axis.
+static func _arm_coords(p: Vector3) -> Vector3:
+	var frame := _arm_frame(p.x)
+	var along: Vector3 = frame[1]
+	var offset_from: Vector3 = p - frame[0]
+	var t := offset_from.dot(along)
+	var radial := offset_from - along * t
+	return Vector3(t, atan2(radial.dot(frame[3]), radial.dot(frame[2])), radial.length())
+
+
+static func _arm_point(p: Vector3, coords: Vector3, radius: float) -> Vector3:
+	var frame := _arm_frame(p.x)
+	var along: Vector3 = frame[1]
+	var dir: Vector3 = frame[2] * cos(coords.y) + frame[3] * sin(coords.y)
+	return frame[0] + along * coords.x + dir * radius
+
+
+## [shoulder, along-arm, up, forward-ish] for the arm on the side of x.
+static func _arm_frame(x: float) -> Array:
+	var side := 1.0 if x >= 0.0 else -1.0
+	var shoulder := Vector3(ARM_SHOULDER.x * side, ARM_SHOULDER.y, ARM_SHOULDER.z)
+	var wrist := Vector3(ARM_WRIST.x * side, ARM_WRIST.y, ARM_WRIST.z)
+	var along := (wrist - shoulder).normalized()
+	var up := (Vector3.UP - along * along.y).normalized()
+	return [shoulder, along, up, along.cross(up)]
 
 
 ## Samples corners and edge midpoints too, since straps are narrower than some triangles.
@@ -202,19 +360,109 @@ func _split(builder: _SurfaceBuilder, corners: Array, depth: int) -> void:
 	if garment == Garment.NONE:
 		return
 	for corner in corners:
-		builder.add_corner(corner, GARMENT_OFFSETS[garment], _color(garment, corner.p))
-	builder.close_triangle()
+		var lift: Vector3 = corner.d if garment == Garment.JACKET else corner.n * GARMENT_OFFSETS[garment]
+		builder.add_corner(corner, lift, _color(garment, corner.p))
+	builder.close_triangle(garment == Garment.JACKET)
+
+
+## Straightens the jacket's edges, gives them some cloth thickness folding back to the
+## body, and raises a collar along the neckline. An edge is open when the body just
+## past it isn't jacket.
+func _add_jacket_edges(builder: _SurfaceBuilder) -> void:
+	var jacket_color: Color = GARMENT_COLORS[Garment.JACKET]
+	var lining := jacket_color * 0.7
+	var tris := builder.jacket_triangles
+	var seen := {}
+	for index in tris:
+		if seen.has(index):
+			continue
+		seen[index] = true
+		var snapped := _snap_to_edge(builder.base[index])
+		builder.positions[index] += snapped - builder.base[index]
+		builder.base[index] = snapped
+	var collar_bins := {}
+	for t in range(0, tris.size(), 3):
+		for k in 3:
+			var a := tris[t + k]
+			var b := tris[t + (k + 1) % 3]
+			var c := tris[t + (k + 2) % 3]
+			var pa := builder.base[a]
+			var pb := builder.base[b]
+			var edge := pb - pa
+			if edge.length_squared() < 1e-10:
+				continue
+			var mid := (pa + pb) * 0.5
+			var away := mid - builder.base[c]
+			away -= edge.normalized() * away.dot(edge.normalized())
+			if away.length_squared() < 1e-10:
+				continue
+			if _garment(mid + away.normalized() * 0.006) == Garment.JACKET:
+				continue
+			var inner_a := builder.clone(a, pa + builder.base_normals[a] * 0.003, away.normalized(), lining)
+			var inner_b := builder.clone(b, pb + builder.base_normals[b] * 0.003, away.normalized(), lining)
+			builder.quad(a, b, inner_b, inner_a)
+			for i in [a, b]:
+				var p := builder.base[i]
+				if p.y > 1.4 and absf(_neck_distance(p) - NECK_RADIUS) < 0.002:
+					var bin := posmod(int(floor((atan2(p.x, -(p.z - NECK_AXIS_Z)) + PI) / TAU * COLLAR_BINS)), COLLAR_BINS)
+					if not collar_bins.has(bin):
+						collar_bins[bin] = []
+					collar_bins[bin].append(i)
+	_add_collar(builder, collar_bins, jacket_color)
+
+
+## Pulls a rest-pose point onto the nearest jacket edge line if it is close to one.
+static func _snap_to_edge(p: Vector3) -> Vector3:
+	var ax := absf(p.x)
+	var side := signf(p.x) if p.x != 0.0 else 1.0
+	if p.y > 1.3 and ax > ARM_START:
+		if absf(ax - CUFF) < EDGE_SNAP:
+			p.x = CUFF * side
+		return p
+	if absf(p.y - JACKET_HEM) < EDGE_SNAP:
+		p.y = JACKET_HEM
+	if p.z > 0.03 and p.y < 1.5 and absf(ax - FRONT_OPENING) < EDGE_SNAP:
+		p.x = FRONT_OPENING * side
+	var neck := _neck_distance(p)
+	if p.y > 1.4 and absf(neck - NECK_RADIUS) < EDGE_SNAP and neck > 0.0:
+		var radial := Vector2(p.x, p.z - NECK_AXIS_Z) * (NECK_RADIUS / neck)
+		p.x = radial.x
+		p.z = radial.y + NECK_AXIS_Z
+	return p
+
+
+## A continuous stand-up collar around the neckline, open at the front. Each bin of
+## neckline vertices becomes one column of the collar, skinned like those vertices.
+func _add_collar(builder: _SurfaceBuilder, bins: Dictionary, color: Color) -> void:
+	var columns := {}
+	for bin in bins:
+		var members: Array = bins[bin]
+		var bottom := Vector3.ZERO
+		for i in members:
+			bottom += builder.positions[i]
+		bottom /= members.size()
+		var anchor: int = members[0]
+		var out := Vector3(bottom.x, 0.0, bottom.z - NECK_AXIS_Z).normalized()
+		var low := builder.clone(anchor, bottom - out * 0.002, out, color * 0.85)
+		var high := builder.clone(anchor, bottom + Vector3.UP * COLLAR_HEIGHT + out * 0.012, out, color)
+		columns[bin] = [low, high]
+	for bin: int in columns:
+		var next := (bin + 1) % COLLAR_BINS
+		if columns.has(next):
+			var here: Array = columns[bin]
+			var there: Array = columns[next]
+			builder.quad(here[0], there[0], there[1], here[1])
 
 
 static func _garment(c: Vector3) -> Garment:
 	var ax := absf(c.x)
 	if c.y > 1.3 and ax > ARM_START:
 		return Garment.JACKET if ax < CUFF else Garment.SKIN
-	if c.y >= COLLAR:
+	if c.y >= 1.5 or (c.y > 1.4 and _neck_distance(c) < NECK_RADIUS):
 		return Garment.SKIN
 	if c.y >= JACKET_HEM:
 		# The jacket is worn open, showing the shirt down the front.
-		if c.z > 0.05 and ax < 0.045:
+		if c.z > 0.05 and ax < FRONT_OPENING:
 			return Garment.SHIRT
 		return Garment.JACKET
 	if c.y >= WAIST:
@@ -232,6 +480,10 @@ static func _garment(c: Vector3) -> Garment:
 	return Garment.BOOTS
 
 
+static func _neck_distance(p: Vector3) -> float:
+	return Vector2(p.x, p.z - NECK_AXIS_Z).length()
+
+
 func _color(garment: Garment, point: Vector3) -> Color:
 	if garment == Garment.SKIN:
 		return skin_tone
@@ -241,23 +493,22 @@ func _color(garment: Garment, point: Vector3) -> Color:
 
 
 func _add_patch(builder: _SurfaceBuilder, tri: Array, centroid: Vector3,
-		verts: PackedVector3Array, normals: PackedVector3Array) -> void:
-	var offset: float = GARMENT_OFFSETS[Garment.JACKET] + 0.002
+		verts: PackedVector3Array, normals: PackedVector3Array, drape: PackedVector3Array) -> void:
 	for patch in PATCHES:
 		var center := Vector2(patch[0], patch[1])
-		var size: float = patch[2]
+		var size := Vector2(patch[2], patch[2] * EMBLEM_ASPECT)
 		var back: bool = patch[3]
 		var face_normal := (normals[tri[0]] + normals[tri[1]] + normals[tri[2]]).normalized()
 		if (face_normal.z < 0.0) != back:
 			continue
-		if absf(centroid.x - center.x) > size * 0.5 + 0.02 or absf(centroid.y - center.y) > size * 0.5 + 0.02:
+		if absf(centroid.x - center.x) > size.x * 0.5 + 0.02 or absf(centroid.y - center.y) > size.y * 0.5 + 0.02:
 			continue
 		for i in tri:
 			var p: Vector3 = verts[i]
 			# Viewed from behind, +X is on the viewer's left, so the back patch mirrors U.
-			var u := ((center.x - p.x) if back else (p.x - center.x)) / size + 0.5
-			var v := 0.5 - (p.y - center.y) / size
-			builder.add(i, 100, p + normals[i] * offset, Color.WHITE, Vector2(u, v))
+			var u := ((center.x - p.x) if back else (p.x - center.x)) / size.x + 0.5
+			var v := 0.5 - (p.y - center.y) / size.y
+			builder.add(i, 100, p + drape[i] + normals[i] * 0.002, Color.WHITE, Vector2(u, v))
 		builder.close_triangle()
 		return
 
@@ -267,65 +518,19 @@ static func _cloth_material() -> StandardMaterial3D:
 	mat.vertex_color_use_as_albedo = true
 	mat.vertex_color_is_srgb = true
 	mat.roughness = 0.85
+	# The collar is a single sheet seen from both sides.
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return mat
 
 
 static func _emblem_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = _emblem_texture()
+	mat.albedo_texture = EMBLEM_TEXTURE
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	mat.alpha_scissor_threshold = 0.5
 	mat.texture_repeat = false
 	mat.roughness = 0.8
 	return mat
-
-
-## Survey Corps "Wings of Freedom": white and blue wings crossed on a dark-edged shield.
-static func _emblem_texture() -> ImageTexture:
-	if _emblem != null:
-		return _emblem
-	var size := 128
-	var image := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	for py in size:
-		for px in size:
-			var p := Vector2((px + 0.5) / size * 2.0 - 1.0, 1.0 - (py + 0.5) / size * 2.0)
-			image.set_pixel(px, py, _emblem_pixel(p))
-	image.generate_mipmaps()
-	_emblem = ImageTexture.create_from_image(image)
-	return _emblem
-
-
-static func _emblem_pixel(p: Vector2) -> Color:
-	var half_width := 0.82 if p.y >= 0.0 else 0.82 * pow(maxf(1.0 + p.y, 0.0), 0.55)
-	if p.y > 0.92 or absf(p.x) > half_width:
-		return Color(0, 0, 0, 0)
-	if minf(half_width - absf(p.x), 0.92 - p.y) < 0.09:
-		return Color(0.1, 0.1, 0.12)
-	var color := Color(0.3, 0.26, 0.22)
-	var white := _wing(p, Vector2(0.2, -0.5), deg_to_rad(95.0), deg_to_rad(150.0))
-	if white > 0:
-		color = Color(0.95, 0.95, 0.95) if white == 1 else Color(0.12, 0.12, 0.15)
-	var blue := _wing(p, Vector2(-0.2, -0.5), deg_to_rad(85.0), deg_to_rad(30.0))
-	if blue > 0:
-		color = Color(0.2, 0.36, 0.78) if blue == 1 else Color(0.12, 0.12, 0.15)
-	return color
-
-
-## 0 = outside, 1 = feather, 2 = feather outline. Feathers fan out from root.
-static func _wing(p: Vector2, root: Vector2, from_angle: float, to_angle: float) -> int:
-	var result := 0
-	var lengths := [1.15, 1.0, 0.85, 0.7]
-	for i in 4:
-		var angle := lerpf(from_angle, to_angle, i / 3.0)
-		var along_dir := Vector2(cos(angle), sin(angle))
-		var q := p - root
-		var half: float = lengths[i] * 0.5
-		var along := (q.dot(along_dir) - half) / half
-		var across := q.dot(Vector2(-along_dir.y, along_dir.x)) / 0.13
-		var e := along * along + across * across
-		if e <= 1.0:
-			result = 1 if e < 0.72 else 2
-	return result
 
 
 # --- Hair ---------------------------------------------------------------------
@@ -489,6 +694,48 @@ static func _hair_material() -> StandardMaterial3D:
 	return mat
 
 
+## Largest body reach per (position along an axis, angle around it) cell.
+class _EnvelopeGrid:
+	const STEP := 0.015
+	var _start: float
+	var _rows: int
+	var _columns: int
+	var _span_rows: int
+	var _span_columns: int
+	var _reach := PackedFloat32Array()
+
+	func _init(start: float, end: float, columns: int, reach_along: float, reach_around: int) -> void:
+		_start = start
+		_columns = columns
+		_rows = int(ceil((end - start) / STEP)) + 1
+		_span_rows = int(ceil(reach_along / STEP))
+		_span_columns = reach_around
+		_reach.resize(_rows * _columns)
+
+	func _row(along: float) -> int:
+		return clampi(int(round((along - _start) / STEP)), 0, _rows - 1)
+
+	func _column(angle: float) -> int:
+		return posmod(int(floor((angle + PI) / TAU * _columns)), _columns)
+
+	## coords = (along, angle, radius)
+	func record(coords: Vector3) -> void:
+		var i := _row(coords.x) * _columns + _column(coords.y)
+		_reach[i] = maxf(_reach[i], coords.z)
+
+	func reach(coords: Vector3) -> float:
+		var row := _row(coords.x)
+		var column := _column(coords.y)
+		var best := coords.z
+		for dr in range(-_span_rows, _span_rows + 1):
+			var r := row + dr
+			if r < 0 or r >= _rows:
+				continue
+			for dc in range(-_span_columns, _span_columns + 1):
+				best = maxf(best, _reach[r * _columns + posmod(column + dc, _columns)])
+		return best
+
+
 ## Collects triangles copied from the body. Vertices are duplicated per garment so each
 ## garment sits at its own offset; split edges get vertices with blended bone weights.
 class _SurfaceBuilder:
@@ -505,14 +752,21 @@ class _SurfaceBuilder:
 	var bones := PackedInt32Array()
 	var weights := PackedFloat32Array()
 	var indices := PackedInt32Array()
+	## Rest-pose body position and normal under each output vertex.
+	var base := PackedVector3Array()
+	var base_normals := PackedVector3Array()
+	## Output indices of every jacket triangle, three per triangle.
+	var jacket_triangles := PackedInt32Array()
+	var _drape: PackedVector3Array
 	var _pending := PackedInt32Array()
 
-	func _init(source: Array, per_vertex: int) -> void:
+	func _init(source: Array, per_vertex: int, drape: PackedVector3Array) -> void:
 		_verts_src = source[Mesh.ARRAY_VERTEX]
 		_bones_src = source[Mesh.ARRAY_BONES]
 		_weights_src = source[Mesh.ARRAY_WEIGHTS]
 		_normals_src = source[Mesh.ARRAY_NORMAL]
 		_per_vertex = per_vertex
+		_drape = drape
 
 	## Adds a copy of a source vertex, shared between triangles of the same group.
 	func add(source_index: int, group: int, position: Vector3, color: Color, uv := Vector2.ZERO) -> void:
@@ -523,10 +777,29 @@ class _SurfaceBuilder:
 			normals.append(_normals_src[source_index])
 			colors.append(color)
 			uvs.append(uv)
+			base.append(_verts_src[source_index])
+			base_normals.append(_normals_src[source_index])
 			for k in _per_vertex:
 				bones.append(_bones_src[source_index * _per_vertex + k])
 				weights.append(_weights_src[source_index * _per_vertex + k])
 		_pending.append(_remap[key])
+
+	## Copies an output vertex's skinning to a new vertex at another position.
+	func clone(index: int, position: Vector3, normal: Vector3, color: Color) -> int:
+		var copy := positions.size()
+		positions.append(position)
+		normals.append(normal)
+		colors.append(color)
+		uvs.append(Vector2.ZERO)
+		base.append(base[index])
+		base_normals.append(base_normals[index])
+		for k in _per_vertex:
+			bones.append(bones[index * _per_vertex + k])
+			weights.append(weights[index * _per_vertex + k])
+		return copy
+
+	func quad(a: int, b: int, c: int, d: int) -> void:
+		indices.append_array(PackedInt32Array([a, b, c, a, c, d]))
 
 	## A free-standing vertex description used while subdividing.
 	func corner(source_index: int) -> Dictionary:
@@ -536,22 +809,28 @@ class _SurfaceBuilder:
 			if w > 0.0:
 				var b := _bones_src[source_index * _per_vertex + k]
 				skin[b] = skin.get(b, 0.0) + w
-		return {"p": _verts_src[source_index], "n": _normals_src[source_index], "skin": skin}
+		return {"p": _verts_src[source_index], "n": _normals_src[source_index], "skin": skin,
+			"d": _drape[source_index]}
 
+	## Midpoint of two corners. The drape is interpolated rather than recomputed, so split
+	## edges stay on their unsplit neighbours' edges and no cracks open.
 	func mix(a: Dictionary, b: Dictionary) -> Dictionary:
 		var skin := {}
 		for bone in a.skin:
 			skin[bone] = a.skin[bone] * 0.5
 		for bone in b.skin:
 			skin[bone] = skin.get(bone, 0.0) + b.skin[bone] * 0.5
-		return {"p": (a.p + b.p) * 0.5, "n": (a.n + b.n).normalized(), "skin": skin}
+		return {"p": (a.p + b.p) * 0.5, "n": (a.n + b.n).normalized(), "skin": skin,
+			"d": (a.d + b.d) * 0.5}
 
-	func add_corner(c: Dictionary, offset: float, color: Color) -> void:
+	func add_corner(c: Dictionary, lift: Vector3, color: Color) -> void:
 		_pending.append(positions.size())
-		positions.append(c.p + c.n * offset)
+		positions.append(c.p + lift)
 		normals.append(c.n)
 		colors.append(color)
 		uvs.append(Vector2.ZERO)
+		base.append(c.p)
+		base_normals.append(c.n)
 		# Keep the strongest influences that fit, renormalised.
 		var ranked: Array = c.skin.keys()
 		ranked.sort_custom(func(x, y): return c.skin[x] > c.skin[y])
@@ -566,8 +845,10 @@ class _SurfaceBuilder:
 				bones.append(0)
 				weights.append(0.0)
 
-	func close_triangle() -> void:
+	func close_triangle(is_jacket := false) -> void:
 		indices.append_array(_pending)
+		if is_jacket:
+			jacket_triangles.append_array(_pending)
 		_pending.clear()
 
 	func arrays() -> Array:

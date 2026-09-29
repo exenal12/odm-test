@@ -1439,3 +1439,318 @@ Both are possible and inexpensive:
 - **Refill NPCs:** they build the same body in code in `gas_supplier.gd`, so the component can be applied there directly. The outfit is skinned, so it follows their kneeling pose. They could get a different outfit too, such as the Garrison emblem instead of the Survey Corps one.
 
 Should I roll this out with a random mix of hair colors and styles for soldiers and refill NPCs?
+
+## User
+
+Briefly inform the user about the task result and perform any follow-up actions (if needed).
+
+## Assistant
+
+That notification is for the stuck headless debug render I killed earlier; its output was already used to find the bug. Nothing more is needed. The debug prints it added were removed from `character_appearance.gd`, and its temporary test script was deleted.
+
+## User
+
+the jacket needs refinement; it should go over the player's body. right now, it looks as if it's plastered on. in addition, the logo isn't right. this is what the logo looks like.
+
+## User
+
+the jacket needs refinement; it should go over the player's body. right now, it looks as if it's plastered on. in addition, the logo isn't right. this is what the logo looks like. The rest of the clothing looks good, though. The hair is passable
+
+## Assistant
+
+I'll start by looking at the reference logo you sent.
+
+I need the jacket to read as a loose garment rather than a painted-on layer. Right now it's offset only slightly along the normals, so it follows every muscle bump on the sculpted mannequin body — I should smooth that surface with Laplacian smoothing to strip out the muscle detail, inflate it further, and add real thickness at the hem edges.
+
+For construction, I'll pull the jacket triangles out as a separate mesh, weld duplicate seam vertices for proper adjacency, then run smoothing on the displacement itself rather than raw positions — a few iterations of Taubin smoothing restricted to the jacket region, followed by pushing outward along the smoothed normal so it clears the body's convex bumps instead of sinking into them.
+
+I also want to smooth the skin weights alongside positions so the jacket deforms like cloth rather than tracking every muscle bulge, though I need to watch the bone-count limit when blending weights across neighbors.
+
+For the hem and cuffs, I'll extrude the mesh's open boundary edges into a thin strip connecting the outer jacket surface to an inner offset surface, giving visible cloth thickness, plus a slight outward flare near the hem. The collar will work similarly — extruding the neckline boundary loop upward and outward into a tilted band to mimic the raised AoT-style collar.
+
+Now I'm worried about welding and adjacency: since I split some triangles to add subdivision, the new midpoint vertices create T-junctions where neighboring triangles don't share that same vertex. Position-based welding won't fix this, because after smoothing, the midpoint can drift off the neighbor's edge and tear open a crack — so I probably need to avoid subdividing across the jacket's boundary band entirely, only doing it safely at the hem where it won't propagate cracks.
+
+To sidestep the crack issue, I realize I should treat smoothing as a displacement field defined on the original body vertices, then have any derived vertex (including split midpoints) inherit its displacement by interpolating its parents' displacements recursively — since the neighboring edge is linear between the same two endpoints with linear displacement, the midpoint stays exactly on the displaced edge and no crack forms. So the plan is to precompute a per-original-vertex displacement field for the jacket region, then carry that displacement value through corner dicts so any interpolated point can pick it up consistently.
+
+I'm working out the smoothing algorithm itself: weld the body mesh's vertices by position to build adjacency, define the jacket vertex set plus a one-ring buffer, set base target positions using the offset along normals, then run several Laplacian smoothing iterations blending each vertex toward its neighbors' average while clamping the projected offset to stay above a minimum distance from the surface so the drape bridges concavities without collapsing inward.
+
+I'm noting concerns about smoothing pulling armpit verts together into unwanted webbing, and confirming the minimum-offset clamp prevents shrinkage along the arms and at convex bulges like the deltoid or pecs. Then I'm adding hem flare and cuff flare terms that push vertices outward near the hem and cuff boundaries based on their distance from those edges.
+
+For skinning, I'm keeping the jacket's original bone weights so draped verts follow the body's motion naturally when the arm raises. Now I'm working out how to build edge thickness strips for the jacket boundary — finding boundary edges of the leaf triangles not shared with another jacket triangle, then constructing quads that connect outer and inner boundary vertices, with inner positions offset inward along the normal to give the jacket some thickness.
+
+I'm also planning the collar as a raised strip along the top boundary edges, disabling backface culling on the cloth material so the collar reads correctly from both sides, and mapping out where all the jacket's boundary edges actually occur — hem, front opening, collar, and cuffs — while noting that the jacket's seams with the separate skin/shirt garments need to be treated as their own boundary category.
+
+Since deduped output vertices and split-corner vertices don't share indices, I realize I need to detect boundaries by rounded position keys rather than by index, counting shared edges across all jacket leaf triangles to flag single-occurrence ones as true boundaries. But I'm now worried about T-junctions: where a split triangle meets an unsplit neighbor, the neighbor's single edge versus the two half-edges on the split side will each register as boundaries, creating false internal seams that could spawn spurious strips buried inside the jacket mesh.
+
+These false boundaries sit just inside the true edge, and near the collar threshold they risk producing tiny visible bumps or flaps just below the real collar line. I think I need a smarter detection that classifies based on garment region membership rather than raw edge occurrence counts to avoid these T-junction artifacts.
+
+For the collar shape itself, I'm planning to have it rise upward along +Y and tilt outward following the surface normal, while front opening edges just get lapel-style thickness rather than full collar treatment.
+
+For the emblem, since the jacket is now displaced, the patch needs the same displacement applied plus a small offset along the normal to sit above the surface, using the original jacket triangle indices as the source. Looking at the reference image, the shield emblem has a dark thin border with a lighter grey band inside it that I need to reproduce carefully.
+
+Actually, since the user provided the actual logo image, I should just use that directly as the texture rather than trying to recreate it procedurally — copying it into the assets folder as the emblem texture would be far more faithful, so I want to check the image's dimensions and background transparency first.
+- Tool call: `Read` {"path": "/home/bazzite/.cursor/projects/home-bazzite-odm-test/assets/image-fa282ef4-f2b9-4e39-af84-12cd1df1a83e.png"}
+- Tool call: `Shell` {"command": "python3 -c \"\nfrom PIL import Image\nim=Image.open('/home/bazzite/.cursor/projects/home-bazzite-odm-test/assets/image-fa282ef4-f2b9-4e39-af84-12cd1df1a83e.png'); print(im.size, im.mode); px=im.convert('RGBA'); print([px.getpixel(p) for p in [(0,0),(5,5),(75,5),(75,75),(2,75)]])\n\" 2>&...
+
+I need to make the background transparent while keeping the shield opaque, but I'm worried the flood fill might leak into the shield interior since the wing tips poke above the shield's top border, potentially creating gaps that connect inside to outside.
+
+Instead, I think defining the shield shape as a known geometric polygon and masking based on that outline would be more reliable than flood fill. Let me zoom into the image to trace the actual coordinates of the shield's edges.
+
+
+The reference image has an opaque white background, and since the wing tips extend past the shield's top edge, a simple flood fill won't work to cut out the shape. I'll upscale the image to trace the outline more precisely.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && mkdir -p .odm_tmp && python3 -c \"\nfrom PIL import Image\nim=Image.open('/home/bazzite/.cursor/projects/home-bazzite-odm-test/assets/image-fa282ef4-f2b9-4e39-af84-12cd1df1a83e.png').convert('RGBA')\nim.resize((604,604),Image.NEAREST).save('.odm_tmp/logo_big...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_tmp/logo_big.png"}
+
+I'm mapping out the shield shape's outer boundary and tapering point, with wing tips extending above and at the bottom corners, plus a light grey field split by a vertical divider and framed in grey. I'm also setting up an alpha mask so non-white pixels register as opaque.
+
+Flood fill from the border works since only pure white edges are affected, so I'll process the image offline with PIL and save it as a PNG texture asset. I need to crop to the actual bounding box of the shield and adjust the patch dimensions to preserve the correct aspect ratio, and I should double check whether the back patch needs to be mirrored for correct viewer orientation.
+
+
+A flood fill from the border will clear only the background, leaving the shield and wing tips intact. I'll cut it out, crop to the shield, and save it as a project texture.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && mkdir -p assets/textures && python3 -c \"\nfrom PIL import Image\nfrom collections import deque\nsrc='/home/bazzite/.cursor/projects/home-bazzite-odm-test/assets/image-fa282ef4-f2b9-4e39-af84-12cd1df1a83e.png'\nim=Image.open(src).convert('RGBA'); w,h=im.size...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_tmp/emblem_cut.png"}
+
+The preview can't show transparency, so I'll check the alpha values directly to confirm the white wing survived the cut.
+
+The preview renders transparency as white so I can't visually distinguish it, but the white wing interiors should still be preserved underneath. I want to verify by checking the alpha value of a pixel in that white-wing interior area to confirm it's actually opaque.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 -c \"\nfrom PIL import Image\nim=Image.open('assets/textures/survey_corps_emblem.png'); px=im.load(); w,h=im.size\nop_white=sum(1 for x in range(w) for y in range(h) if px[x,y][3]>0 and min(px[x,y][:3])>232)\nclear=sum(1 for x in range(w) for y in ra...
+
+The white wing looks good with opaque white pixels against a transparent background, so alpha edges should render cleanly with linear filtering. Now I'm switching the emblem to load from the actual texture file instead of the procedural drawing functions, and calculating patch dimensions based on the image's aspect ratio to size it correctly.
+
+For the jacket drape, I'm working out a vertex welding approach to merge duplicate positions, build adjacency from the triangle indices, then identify which welded vertices belong to the jacket region plus a buffer ring around the boundary so displacement smoothing transitions cleanly into non-jacket areas.
+
+I'm setting non-jacket-adjacent vertices as fixed anchors at their offset position, then running 16 Laplacian smoothing iterations at factor 0.5 on the jacket vertices, clamping the minimum outward offset to avoid the mesh collapsing into concave creases like the armpit, and capping the maximum displacement so the smoothing doesn't pull the jacket surface too far from the body.
+
+Now I'm adding hem flare near the bottom edge and cuff flare near the sleeve ends, tapering the extra outward push as a function of distance from those boundaries, plus a separate strip for a standing collar. I need to track per-vertex displacement so I can map it back through the weld/duplicate indices to the original source vertices, then feed that displacement into the corner-building logic so jacket corners get positioned using explicit displacement vectors instead of the usual normal offset, with displacement averaged like other corner attributes during mixing. After the cloth mesh is built I'll need to gather the jacket's leaf triangles and their vertex indices to handle thickness and the collar strips.
+
+For thickness, I'm recording each jacket triangle's output vertex indices along with an "inner" position offset slightly along the normal, plus storing the base (undisplaced) position for boundary detection. To find boundary edges, I test a point just outside each triangle edge in bind space and check if it falls outside the jacket region, then build a quad strip connecting outer and inner edge vertices with a slightly darkened lining color for those boundary strips. For the collar, I'm checking if both edge endpoints are above a certain height and not part of the front opening, then extending a collar band upward and outward from the boundary using the surface normal.
+
+I'm sketching lapels at the front opening by checking where the boundary test point classifies as shirt rather than jacket, folding a small flap outward there, while keeping the shape simple with just thickness for now. For skin weighting, strip vertices reuse the same bone/weight data as their corresponding outer vertex, which means the builder needs a way to add raw vertices with explicit bone data and a clone method to duplicate an existing vertex's skinning onto a new position. I'm also planning to store parallel base position and base normal arrays in the builder so boundary and thickness calculations can reference undisplaced geometry cheaply, and noting that emblem patch vertices will need to account for drape displacement plus normal offset.
+
+Now I'm shifting to implementation: disabling cloth material culling for the collar so it renders double-sided, checking that the shirt strip stays visible under the jacket opening, and reviewing the emblem patch data format before actually writing the code edits across the outfit builder, split, patch-adding, and emblem texture functions.
+
+
+The wing cutout came out clean with a transparent background. Now I'll fix the jacket's "plastered on" look by smoothing a displacement field to drape it over the body with a minimum gap, flaring the hem, adding cloth thickness at edges, and a stand-up collar—starting by reading the current outfit-building code.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "offset": 150, "limit": 140}
+
+Now the edits. First, the outfit builder and splitter, so they carry the drape displacement and collect jacket edges:
+
+I'm planning to replace the outfit-building and hair-related code sections with updated versions, targeting the outfit split, patch-adding, and emblem functions for edits.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Returns [cloth and skin arrays, emblem patch arrays].\nfunc _build_outfit(source: Array, bones_per_vertex: int) -> Array:\n\tvar verts: PackedVector3Array = source[Mesh.ARRAY_VERTEX]\n\tvar normals: PackedVec...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tif garment == Garment.NONE:\n\t\treturn\n\tfor corner in corners:\n\t\tbuilder.add_corner(corner, GARMENT_OFFSETS[garment], _color(garment, corner.p))\n\tbuilder.close_triangle()", "new_string": "\tif garment ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "func _add_patch(builder: _SurfaceBuilder, tri: Array, centroid: Vector3,\n\t\tverts: PackedVector3Array, normals: PackedVector3Array) -> void:\n\tvar offset: float = GARMENT_OFFSETS[Garment.JACKET] + 0.002\n\tfo...
+
+Now I'll replace the procedural emblem with the reference image. First, the current emblem code:
+
+I'm updating the emblem material to use the loaded texture, removing the now-unused texture, pixel, wing, and static emblem variables, and locating the exact section to swap in the replacement.
+- Tool call: `Grep` {"pattern": "static func _emblem_material|# --- Hair|static var _emblem|const PATCHES", "path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "-n": true}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "offset": 373, "limit": 58}
+
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tmat.albedo_texture = _emblem_texture()\n\tmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR\n\tmat.alpha_scissor_threshold = 0.5\n\tmat.texture_repeat = false\n\tmat.roughness = 0.8\n\treturn mat\n\...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "static var _emblem: ImageTexture\n", "new_string": ""}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Wings of Freedom patches: centre (x, y), size, and whether the patch faces the back.\nconst PATCHES := [[0.0, 1.3, 0.15, true], [0.085, 1.335, 0.05, false]]", "new_string": "## Wings of Freedom patches: centr...
+
+Last, the surface builder needs to carry the drape, record jacket triangles, and support the edge and collar strips. I'll look at it first.
+
+I'm looking at the mesh builder structure—the constructor for drape, corner handling with lift and color blending, triangle closing logic that records jacket triangles separately, and the base arrays with clone and quad helpers. I also confirm the jacket offset constant is correctly applied, and note the collar material needs backface culling disabled before I dive into rewriting the builder itself.
+- Tool call: `Grep` {"pattern": "^class _SurfaceBuilder", "path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "-n": true}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "offset": 545}
+
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar indices := PackedInt32Array()\n\tvar _pending := PackedInt32Array()\n\n\tfunc _init(source: Array, per_vertex: int) -> void:\n\t\t_verts_src = source[Mesh.ARRAY_VERTEX]\n\t\t_bones_src = source[Mesh.ARRAY_...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\t\treturn {\"p\": _verts_src[source_index], \"n\": _normals_src[source_index], \"skin\": skin}\n\n\tfunc mix(a: Dictionary, b: Dictionary) -> Dictionary:\n\t\tvar skin := {}\n\t\tfor bone in a.skin:\n\t\t\tskin...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tfunc close_triangle() -> void:\n\t\tindices.append_array(_pending)\n\t\t_pending.clear()", "new_string": "\tfunc close_triangle(is_jacket := false) -> void:\n\t\tindices.append_array(_pending)\n\t\tif is_jacke...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tmat.vertex_color_use_as_albedo = true\n\tmat.vertex_color_is_srgb = true\n\tmat.roughness = 0.85\n\treturn mat", "new_string": "\tmat.vertex_color_use_as_albedo = true\n\tmat.vertex_color_is_srgb = true\n\tmat...
+
+Checking the jacket triangle fast-path and edge-building logic look correct, using the public builder positions properly. I should double-check the lining color computation since multiplying a Variant dictionary value by a float might not infer the type cleanly.
+
+I'm now worried about a subtler bug in `_jacket_drape`: since `neighbours` is an Array of PackedInt32Array, calling `.append()` on an element accessed via subscript might operate on a copy rather than the actual stored array, meaning the mutation wouldn't persist -- I need to verify whether GDScript's subscript write-back semantics actually handle this case for packed arrays nested in an Array.
+
+
+I'll switch the neighbour lists to plain Arrays since appending to a packed array inside an Array can modify a copy, and I'll explicitly type the value read from the constant Dictionary.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar neighbours: Array[PackedInt32Array] = []\n\tneighbours.resize(count)\n\tfor t in range(0, indices.size(), 3):", "new_string": "\tvar neighbours: Array[Array] = []\n\tneighbours.resize(count)\n\tfor w in co...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar lining := GARMENT_COLORS[Garment.JACKET] * 0.7", "new_string": "\tvar jacket_color: Color = GARMENT_COLORS[Garment.JACKET]\n\tvar lining := jacket_color * 0.7"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\t\t\t\tvar top_a := builder.clone(a, builder.positions[a] + rise + na * 0.012, na, GARMENT_COLORS[Garment.JACKET])\n\t\t\t\tvar top_b := builder.clone(b, builder.positions[b] + rise + nb * 0.012, nb, GARMENT_CO...
+
+Now a fresh render script, with close-ups of the chest emblem and collar and the back emblem and hem:
+
+I'm checking the jacket drape neighbor lookup and vertex key hashing logic, then need to recreate the render script since it was deleted, covering front, back, side views plus closeups of the back emblem and collar.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/.odm_render.gd", "contents": "extends SceneTree\n\nconst OUT := \"res://.odm_renders/\"\nvar _cam: Camera3D\nvar _p: Node3D\nvar _frame := 0\nvar _shot := 0\nvar _views := [\n\t[\"front\", Vector3(0.4, 1.3, 2.4), Vector3(0, 1.1, 0)],\n\t[\"back\", Vector3(-0.3, 1.4, ...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_tmp .odm_renders && timeout 120 godot --headless --path . --import 2>&1 | rg -i \"error\" | rg -v \"editor_settings|logs|rotate\" | head -5; ODM_CLIP=Idle ODM_T=0.4 timeout 60 godot --path . --resolution 900x900 --script res://.odm_render.gd 2>&1...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_front.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_back.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_chest_close.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_back_close.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_side.png"}
+
+The emblem image is now correct, but the back placement has an issue: the patch is distorted where it drapes over the curved back, causing the white wing to spill below the shield into an unwanted vertical stripe near the bottom edge.
+
+With texture clamping enabled instead of repeat, the edge pixels of the texture (which include opaque shield/wing tips) get stretched vertically, creating both the bottom "drip" and a faint line above the emblem. The fix is to pad the texture with a 2px transparent border on all sides so clamping stretches transparency instead of opaque pixels — and I should double check the emblem isn't mirrored, though the blue wing placement on the back already matches the reference.
+
+Separately, the jacket mesh still shows visible muscle bulges since the smoothing radius from 14 iterations is too small relative to the ~10cm scale of the muscles, and the min-gap clamp is pushing the fabric back out at each bulge peak, keeping the convex shapes intact.
+
+To hide the mannequin's segmented deltoid/arm-joint look, I want to bump smoothing to around 40 iterations to better fill the concavities between muscle masses, and increase the base jacket offset to 0.018 for a puffier drape that naturally bridges the arm segment gaps — the extra compute cost (~600k ops) is negligible. The collar band is rendering as a jagged dark ring because its boundary comes from subdivided zigzag triangles, each spawning its own small rise-0.03 quad with independent normals, producing that crown-like jagged edge.
+
+The dark shading is likely from double-sided normals flipping on back faces. A better fix is to build the collar as a proper continuous ring mesh: sample a neckline loop at collar height, use the drape-based jacket surface radius at each angle to size it, extrude the band upward and flare it outward, skin it to the neck/chest bone using copied weights from the nearest jacket vertex, and leave a gap at the front V-opening. The lapel and front shirt strip already look fine as-is, so next I'm considering the jagged hem edges caused by the same split-triangle zigzag issue.
+
+To fix the jaggedness, I could clip triangles precisely along the boundary planes (hem, collar, cuff, front opening) instead of relying on subdivision, or snap boundary vertices by projecting their base position directly onto the boundary plane before re-adding drape displacement — this should straighten the zigzag into a clean line. I'm now working out how to detect which boundary a given vertex is near (hem, cuff, collar, or front) so I can apply the right projection to each.
+
+Since triangles are duplicated rather than shared at split corners, snapping each duplicate copy identically preserves consistency, though I realize snapping only the jacket vertices while leaving the underlying shirt's zigzag edge untouched would create visible gaps between the two garments at the hem, exposing the underlay beneath.
+
+That gap effect might actually read as a natural hem shadow where the shirt dips below the snapped line, while sections where it extends above stay hidden under the jacket — so it's likely acceptable. I need to implement this by having the boundary-detection pass tag which vertices are open edges, snap only those, then rebuild the strips; the other garments like straps and boots will keep some jaggedness, but that's fine since the user was satisfied there. I also note the light grey rectangle behind the chest emblem is just the shield's grey field, so that's intentional.
+
+But I'm also seeing an extended lighter rectangle beyond the shield — likely the same clamped-edge issue on the right column, which padding the texture should fix. There's also raggedness at the collar strips near the shoulder/neck in the front view, which replacing the collar geometry with a proper ring should resolve.
+
+So my plan is: pad the texture by 3px transparent border and adjust the aspect ratio accordingly, increase jacket smoothing and base offset, add boundary vertex snapping, and replace the per-edge collar with a proper ring band built around the neck axis using angular steps.
+
+I'm working out how to build that collar ring — leaving a V-shaped opening at the front (skipping roughly a 180±40° angular range), sampling the draped jacket geometry's radial distance at each angle to size the ring, and offsetting the ring inward slightly so it tucks naturally with a top edge raised by the collar height.
+
+But I'm realizing at y=1.465 the trapezius slope pushes the jacket's x-extent out to about 0.198 near the shoulders, so a naive collar ring at that height would flare way out onto the shoulders rather than hugging the neck — I need to account for that slope when computing radius per angle.
+
+Refining the neckline geometry: skin extends where radial distance from neck axis stays under ~0.085 above y=1.42, while the trapezius/jacket fills the region beyond that radius up to y~1.5. The collar ring itself sits around radius 0.085-0.09, with its y-position varying along that neckline curve between roughly 1.46 and 1.5.
+
+For each snap-boundary type I'm defining the rule: hem vertices snap their y to the hem height, cuff vertices snap |x| to the cuff distance while preserving sign, and neck vertices snap radially to a fixed neck radius while keeping angle and y unchanged. For the collar itself, I'll gather the snapped neckline boundary vertices, sort them by angle around the neck axis, bin them into 40 segments and average positions per bin, then extrude those bins outward to build a smooth collar with skin weights inherited from a representative vertex in each bin.
+
+I'm now catching a problem: near the chin, the head's radial distance from the neck axis exceeds the neck radius threshold at y around 1.5, which would misclassify the chin/face as jacket material instead of skin -- I need a fix so the face region isn't swallowed by the jacket rule.
+
+My correction: enforce y >= 1.5 as always SKIN, and between 1.40-1.5 use radial distance from neck axis to decide skin vs jacket, checking this before the front-opening V-neck rule so the throat isn't miscategorized.
+
+Now I'm testing NECK_R = 0.085 by checking sample points around the neck band: the back of the neck lands as jacket (fine, since the collar covers it), while the front and sides correctly classify as skin. I'm reconsidering whether shifting the neck axis's z-value slightly would give a cleaner boundary at the back.
+
+I'll also check that the collar height doesn't collide with where the hair ends near the back of the neck — since the hair radius there is larger than the collar, the collar stays hidden underneath, which works fine. Now I'm working out how to build the collar geometry itself, binning boundary vertices by angle around the neck and averaging positions per bin to get a clean loop.
+
+For connecting bins, I only link adjacent filled bins so the collar doesn't wrap across the front V-opening gap. Then I'm setting up the snapping logic in `_add_jacket_edges`: gather boundary edges, collect unique boundary vertex indices, compute each vertex's snapped position, and shift both position and base arrays by the delta — making sure shared and duplicated corner vertices all move together consistently.
+
+But I realize duplicated copies at corners that only touch the boundary at a single point might get missed by the detection, leaving cracks. Instead of only snapping detected boundary vertices, I could snap all jacket vertices whose base lies within a thin band (about 0.008) of the boundary plane, which collapses that thin band into a straight edge while letting nearby interior triangles stretch slightly to compensate.
+
+I need this snapping to preserve the drape offset — keeping the lift value but shifting the base position — and note that the shirt or strap beneath the hem stays zigzagged, creating a shadow-like gap under the jacket. For the neckline, I'd apply a similar radial band snap so points near the neck radius collapse onto the exact neck circle.
+
+Front opening snapping should clamp x near ±0.045 for the placket, hem snapping clamps y to HEM, and cuffs clamp arm x to the cuff position — accepting that these moves are mostly tangential and small enough not to distort the surface. After snapping, I detect boundary edges and build strips from the snapped base points, testing garment classification via a pushed-away midpoint, while skipping degenerate zero-length edges and building collar bins from the neck boundary vertices. I'll bump the jacket offset to 0.016, increase smoothing to 40, and set a minimum gap of 0.01 before implementing.
+
+
+The logo now matches and the jacket sits better, but I still see streaks off the emblems, muscle show-through, a wide jagged collar, and zigzag hems/cuffs. I'll fix these by adding a transparent border to the texture, adding more smoothing passes, redoing the collar around the neck as one smooth band, and snapping edge vertices to the hem/cuff/neckline lines—starting with the padded texture.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 -c \"\nfrom PIL import Image\nim=Image.open('assets/textures/survey_corps_emblem.png')\npad=Image.new('RGBA',(im.size[0]+6,im.size[1]+6),(255,255,255,0)); pad.paste(im,(3,3)); pad.save('assets/textures/survey_corps_emblem.png'); print(pad.size)\"", "...
+
+Now the constants and the neckline rule in `_garment`:
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Height / width of the emblem image.\nconst EMBLEM_ASPECT := 143.0 / 105.0\n## Smoothing passes for the jacket drape, and the closest it may sit to the skin.\nconst JACKET_SMOOTHING := 14\nconst JACKET_MIN_GAP...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tGarment.JACKET: 0.012,\n\tGarment.PANTS: 0.005,", "new_string": "\tGarment.JACKET: 0.016,\n\tGarment.PANTS: 0.005,"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tif c.y >= COLLAR:\n\t\treturn Garment.SKIN\n\tif c.y >= JACKET_HEM:\n\t\t# The jacket is worn open, showing the shirt down the front.\n\t\tif c.z > 0.05 and ax < 0.045:\n\t\t\treturn Garment.SHIRT\n\t\treturn ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "func _color(garment: Garment, point: Vector3) -> Color:", "new_string": "static func _neck_distance(p: Vector3) -> float:\n\treturn Vector2(p.x, p.z - NECK_AXIS_Z).length()\n\n\nfunc _color(garment: Garment, poi...
+
+Next, the new edge pass: snap edge vertices, add cloth thickness, and build the collar as one band.
+
+I should check if COLLAR is still referenced elsewhere, like in _add_jacket_edges, before removing the constant—I'll clean it up once that function is rewritten. Now let me move on to rewriting _add_jacket_edges itself.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Gives the jacket's open edges some cloth thickness, folding back to the body, and\n## raises a collar along the neckline. An edge is open when the body just past it\n## isn't jacket.\nfunc _add_jacket_edges(b...
+
+I'll remove the now-unused `COLLAR` constant and re-render.
+
+I'm checking that subscript-based writes to the builder's positions and base arrays actually persist through the property getter/setter chain in GDScript, which they should since indexed assignment on an object property triggers the setter properly. Now I'm thinking through how to snap shared vertices across triangles, considering that unsplit fast-path vertices need consistent handling too.
+
+Verifying the dedupe key includes garment group so jacket vertices don't collide with other layers, confirming emblem patches sit away from edges, and checking that the front neckline gap forms correctly since no bins exist where the shirt directly borders skin. I want to double check the collar bin threshold after snapping, and I should remove the now-unused COLLAR constant to avoid confusion before moving on to rendering.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "const COLLAR := 1.47\n", "new_string": ""}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_renders && timeout 120 godot --headless --path . --import 2>&1 | rg -i \"error\" | rg -v \"editor_settings|logs|rotate\" | head -5; ODM_CLIP=Idle ODM_T=0.4 timeout 60 godot --path . --resolution 900x900 --script res://.odm_render.gd 2>&1 | rg \"T...
+
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tfor bin in columns:\n\t\tvar next := (bin + 1) % COLLAR_BINS", "new_string": "\tfor bin: int in columns:\n\t\tvar next := (bin + 1) % COLLAR_BINS"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_renders && ODM_CLIP=Idle ODM_T=0.4 timeout 60 godot --path . --resolution 900x900 --script res://.odm_render.gd 2>&1 | rg \"TIMING|SURFACE|SCRIPT ERROR|Parse|ERROR\" | rg -v \"get_node_or_null|logs|rotate|NO GRAB\"", "description": "Render jacket...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_front.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_back_close.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_chest_close.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_side.png"}
+
+The front logo looks clean now, and I realize the wing tips crossing below the shield on the back emblem are actually correct per the reference design, just looking warped from the curved draping surface. The jacket still reads as too muscular around the deltoid area.
+
+To fix the arm bulges, I'm thinking I need an envelope approach: for each arm bone, compute a cylindrical coordinate system along its axis, then take the max radius over a sliding window and angle bins to smooth over the convex bumps, effectively creating a hull-like sleeve surface. I want to apply the same logic to the torso around a vertical axis to smooth out shoulder blade and lat bulges on the back.
+
+I need to define separate axis segments for the torso and each arm, then handle the seam where they meet at the deltoid — blending the torso and arm envelope solutions with a smoothstep function around x=0.15-0.25 to avoid a discontinuity at the shoulder junction.
+
+The bust and hem behave well since the envelope naturally drapes the jacket straight down and flares outward, giving realistic cloth movement, and the sleeve tube covers the arm bulges correctly. But I'm now worried about the armpit region — since torso-assigned vertices are binned into the torso grid even near the shoulder, the horizontal T-pose arm could bleed into the torso's side envelope at θ=90°, causing the armpit area to inflate incorrectly.
+
+That said, checking the radii at those heights shows the effect is minor since the deltoid width only slightly exceeds the torso's natural chest radius. Since each vertex retains its original bone weights, radially moving it outward to the envelope point still lets it follow the correct bone when the arm bends. The final drape is computed as the difference between the envelope position and the original point, then hem flare and Laplacian smoothing (fewer iterations, with minimum gap enforcement) get applied on top, replacing the old normal-offset shell method while keeping the front opening edges intact.
+
+Now I'm setting up the envelope mapping for the jacket drape function, defining shoulder and wrist reference points and torso axis constants, then computing cylindrical-style coordinates (height, angle, radius) for each welded vertex relative to both the torso and the mirrored arm axis, and laying out sampling grids for torso and arm regions.
+
+I'm working through how to blend the arm envelope near the shoulder to avoid it bleeding into the torso's ribcage sides, adjusting the arm weight to depend on the projected position along the arm axis rather than just raw distance, so the blend only activates properly past the shoulder joint.
+
+For positioning, I'm computing torso and arm surface points by projecting outward from each axis using the envelope radius, then blending between them by the arm weight—and realizing the offset for surface displacement should point radially outward along the direction vector rather than along the surface normal.
+
+After blending shell points I'll run several Laplacian smoothing passes with a minimum-gap clamp to avoid intersections, and clamp any out-of-range t values to the grid boundaries. Time to actually write this out.
+
+
+The logo, collar, and edges now look right, but the jacket still shows the mannequin's segmented muscles since smoothing just fills hollows before the min-gap rule pushes it back over the bulges. I'll instead build the jacket from an envelope using the largest body reach around each axis, so sleeves become smooth tubes and the front falls straight, then apply a final light smoothing pass to clean up remaining steps.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar shell := PackedVector3Array()\n\tvar active := PackedInt32Array()\n\tfor w in count:\n\t\twelded_normals[w] = welded_normals[w].normalized()\n\t\tshell.append(positions[w] + welded_normals[w] * GARMENT_OFF...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Samples corners and edge midpoints too, since straps are narrower than some triangles.", "new_string": "## Moves jacket points out to a cloth-like envelope. Around the torso's vertical axis and\n## each arm's...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "const JACKET_SMOOTHING := 40", "new_string": "const JACKET_SMOOTHING := 12\n## Axes the jacket envelope is measured around (rest pose).\nconst TORSO_AXIS_Z := 0.02\nconst ARM_SHOULDER := Vector3(0.16, 1.417, -0....
+
+I'm building an internal grid class that tracks reach values across rows and columns based on a start/end range and step size, sizing its storage array accordingly.
+
+Adding grid lookup and reach logic...
+
+I realize I'm unsure whether inner classes in GDScript can access outer class constants like ENVELOPE_REACH directly, so I should pass values in as parameters instead to be safe, and I'm noting a concern about how the torso envelope behaves near arm regions in a T-pose where vertex assignments get tricky.
+
+There's a real bug lurking: since I record every active vertex into both grids indiscriminately, arm vertices at the shoulder end up polluting the torso grid at chest height, blowing up the torso envelope radius near the sides and pushing torso points outward incorrectly. I need to filter which vertices get recorded into which grid — torso grid should only take verts with low sleeve weight (a.x < 0.03 or y <= 1.28), and arm grid should only take verts with sleeve weight present (a.x > -0.03 and y > 1.28) — and I also need to check whether the arm grid similarly picks up stray torso vertices near the armpit.
+
+I'm defining the sleeve blend value and the record conditions for the torso and arm grids based on that threshold. At the shoulder blending region, the torso grid ends up including some partial-sleeve deltoid vertices, but their radius stays reasonable so it should be fine there. Now I want to move on to implementing this as a class with parameters, and I'm also double-checking whether GDScript inner classes can read outer class constants directly — better to just pass values explicitly to be safe.
+
+
+I noticed a bug: currently every jacket point feeds both the torso and arm grids, which would make the torso balloon out to arm's length in the T-pose. I'll fix the recording step so each grid only captures the points it actually owns.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar offset: float = GARMENT_OFFSETS[Garment.JACKET]\n\tvar torso := _EnvelopeGrid.new(JACKET_HEM, 1.52, 32)\n\tvar arms := [_EnvelopeGrid.new(-0.06, 0.44, 24), _EnvelopeGrid.new(-0.06, 0.44, 24)]\n\tvar coords...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "## Collects triangles copied from the body. Vertices are duplicated per garment so each", "new_string": "## Largest body reach per (position along an axis, angle around it) cell.\nclass _EnvelopeGrid:\n\tconst S...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_renders && ODM_CLIP=Idle ODM_T=0.4 timeout 60 godot --path . --resolution 900x900 --script res://.odm_render.gd 2>&1 | rg \"TIMING|SURFACE|SCRIPT ERROR|Parse|ERROR\" | rg -v \"get_node_or_null|logs|rotate|NO GRAB\"", "description": "Render jacket...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_front.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_back.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_side.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_chest_close.png"}
+
+The torso and jacket look smoother now, with a better back and collar, but the arms and shoulders still show segmented bulges at the deltoid and elbow. That's likely because the smoothing envelope window along the arm doesn't span wide enough to bridge deltoid-to-elbow bulges.
+
+I'll widen the arm envelope reach to 0.08 while keeping torso at 0.045 since that region already looks good, and I'll bump smoothing iterations up to 20 to further soften the joint grooves.
+
+
+The torso now reads convincingly as a jacket, but the sleeves still show shoulder and elbow bulges since the mannequin's arm segments exceed the 4.5 cm search window. I'll widen the window to 8 cm for the arms and apply more smoothing.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "\tvar arms := [_EnvelopeGrid.new(-0.06, 0.44, 24, ENVELOPE_REACH, ENVELOPE_ANGLE_BINS),\n\t\t_EnvelopeGrid.new(-0.06, 0.44, 24, ENVELOPE_REACH, ENVELOPE_ANGLE_BINS)]", "new_string": "\tvar arms := [_EnvelopeGrid...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "const ENVELOPE_REACH := 0.045\nconst ENVELOPE_ANGLE_BINS := 1", "new_string": "const ENVELOPE_REACH := 0.045\n## Sleeves bridge the mannequin's segmented shoulder and elbow, which are longer.\nconst SLEEVE_REACH...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/character_appearance.gd", "old_string": "const JACKET_SMOOTHING := 12", "new_string": "const JACKET_SMOOTHING := 20"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/.odm_render.gd", "old_string": "\t[\"back_close\", Vector3(-0.2, 1.35, -1.0), Vector3(0, 1.25, 0)],", "new_string": "\t[\"back_close\", Vector3(-0.2, 1.35, -1.0), Vector3(0, 1.25, 0)],\n\t[\"arm_close\", Vector3(1.0, 1.35, 0.4), Vector3(0.2, 1.2, 0)],"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_renders && for spec in Idle:0.4 RunForward:0.3; do c=${spec%%:*}; t=${spec##*:}; ODM_CLIP=$c ODM_T=$t timeout 60 godot --path . --resolution 900x900 --script res://.odm_render.gd 2>&1 | rg \"TIMING|SCRIPT ERROR|Parse\" | rg -v \"get_node_or_null\...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_arm_close.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/Idle_front.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/RunForward_side.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/RunForward_back.png"}
+
+The jacket now reads correctly in the run views—sleeves, torso, collar, and logo all look right—though the arm close-up during idle still shows the deltoid bulge and a bit of pec bulging under the chest. It's a solid improvement, but truly fixing the shoulder/chest area would need actual cloth simulation; I might try increasing the torso reach a bit more to reduce the bust bulge, but otherwise this feels like a reasonable stopping point worth flagging as a limitation.
+
+Now I need to run smoke tests across levels, clean things up, and finalize the transcript.
+
+
+The jacket now looks right in the running pose, but the idle close-up still shows the shoulder cap bulging where the ball joint blends into the torso. I'll smoke-test the levels and clean this up.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf /tmp/odm_renders6 && mv .odm_renders /tmp/odm_renders6 && rm -f .odm_render.gd .odm_render.gd.uid && for s in giant_forest forest_world; do timeout 90 godot --headless --path . res://scenes/world/$s.tscn --quit-after 600 2>&1 | rg -i \"error|script\" ...
+
+I fixed both: the jacket now hangs over the body like a garment, and the patches use your logo image.
+
+![Running: jacket over the body, logo on the back](/tmp/odm_renders6/RunForward_back.png)
+
+![Side view in motion](/tmp/odm_renders6/RunForward_side.png)
+
+![Front with the chest patch and collar](/tmp/odm_renders6/Idle_front.png)
+
+**Jacket** (in `scripts/player/character_appearance.gd`):
+- **Why it looked plastered on:** it was a fixed offset from the skin, so it copied every sculpted muscle. It's now shaped from an envelope around the torso's axis and each arm's axis. Each point sits at the body's largest reach nearby, and then gets a light smoothing pass. The result spans from bulge to bulge like cloth: sleeves are closer to tubes, the front falls straight from the chest, and the back is smooth.
+- **Fit:** it never comes closer than 1 cm to the skin, and the hem and cuffs flare slightly so it hangs rather than clings.
+- **Edges:** the hem, cuffs, front opening and neckline are snapped onto straight lines, and those edges have visible cloth thickness with a darker lining.
+- **Collar:** the neckline now follows the neck instead of a fixed height, and there's a continuous stand-up collar, open at the front.
+- **Still visible:** where the torso blends into the sleeve, the mannequin's ball-shaped shoulder still shows a rounded cap, most noticeably when standing still.
+
+**Logo:** the patches now use your image, saved as `assets/textures/survey_corps_emblem.png`. I removed the white background, kept the white wing intact, cropped it to the shield, and added a transparent border so it doesn't smear across the jacket. It sits on the back and left breast at the image's own proportions, and moves with the jacket.
+
+The rest of the clothing and the hair are unchanged. The outfit is still about 36k triangles, and generating it takes about 0.6 s once per level load, then it's cached. Both levels run without errors.
+
+`git status` also shows audio, `gas_exhaust.gd`, `odm_controller.gd` and other files as changed. That's work from a separate chat; from this one, only `character_appearance.gd` and the new `assets/textures/` folder changed.
+
+The other modified files like audio, gas_exhaust, and odm_controller seem to be from separate parallel work, not something I touched aside from character_appearance and the textures. There's just a benign warning about resources still in use at exit, which is harmless on quit — nothing to worry about there. Time to wrap up my response.

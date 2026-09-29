@@ -2,6 +2,8 @@ class_name ODMController
 extends Node
 ## Dual-hook ODM: latch, swing constraint, reel, gas boost.
 
+const GasExhaustScript := preload("res://scripts/player/gas_exhaust.gd")
+
 ## Emitted whenever current or maximum gas changes.
 signal gas_changed(current: float, maximum: float)
 ## Emitted whenever either hook changes attachment state.
@@ -16,6 +18,14 @@ signal hook_detached(is_left: bool)
 signal boosted
 ## Emitted when the reel mode is toggled.
 signal reel_mode_changed(enabled: bool)
+## Emitted when cables start or stop actively shortening.
+signal reeling_changed(active: bool)
+## Emitted when gas boost starts or stops being active.
+signal boosting_changed(active: bool)
+
+var _is_reeling: bool = false
+var _boost_reported: bool = false
+var _exhaust: Node3D
 
 ## Maximum distance a hook cable may extend.
 @export var max_cable_length: float = 45.0
@@ -129,6 +139,7 @@ func setup(player: CharacterBody3D, camera: Camera3D, gear_root: Node3D) -> void
 		gear_root.add_child(_right_hook)
 
 	_bind_launcher_muzzles()
+	_bind_exhaust()
 	gas_changed.emit(gas, gas_max)
 	hooks_changed.emit(false, false)
 	reel_mode_changed.emit(reel_enabled)
@@ -149,6 +160,27 @@ func _bind_launcher_muzzles() -> void:
 			> right.global_position.distance_squared_to(_left_socket.global_position)
 	_left_muzzle = right if swapped else left
 	_right_muzzle = left if swapped else right
+
+
+## Attaches the gas trail effect to the gear visual's nozzle, when it has one.
+func _bind_exhaust() -> void:
+	var visual := _player.find_child("ODMGearVisual", true, false)
+	var nozzle := visual.find_child("Nozzle", true, false) as Node3D if visual != null else null
+	if nozzle == null:
+		return
+	_exhaust = GasExhaustScript.new()
+	_exhaust.position = Vector3(0.0, -0.035, 0.0)
+	nozzle.add_child(_exhaust)
+
+
+## Drives the nozzle trail and reports boost start/stop for audio.
+func _update_gas_effects() -> void:
+	if _boosting != _boost_reported:
+		_boost_reported = _boosting
+		boosting_changed.emit(_boosting)
+	if _exhaust != null:
+		var reeling_gas := _is_reeling and gas_reel_drain > 0.0 and gas > 0.0
+		_exhaust.set_state(reeling_gas, _boosting)
 
 
 ## Updates the camera used to aim newly fired hooks and boost direction.
@@ -278,6 +310,7 @@ func physics_tick(delta: float) -> void:
 	_apply_cable_constraints(delta)
 	_apply_air_steer(delta)
 	_apply_boost(delta)
+	_update_gas_effects()
 	_update_cable_visuals()
 
 
@@ -368,6 +401,7 @@ func _socket_global(is_left: bool) -> Vector3:
 ## Shortens all attached cables while reel mode is enabled.
 func _apply_reel(delta: float) -> void:
 	if not reel_enabled:
+		_set_reeling(false)
 		return
 	var shortening := _effective_reel_speed() * delta
 	var reeling := false
@@ -377,8 +411,17 @@ func _apply_reel(delta: float) -> void:
 	if _right_hook.is_attached():
 		_right_hook.shorten(shortening, min_cable_length)
 		reeling = true
+	_set_reeling(reeling)
 	if reeling and gas_reel_drain > 0.0:
 		_spend_gas(gas_reel_drain * delta)
+
+
+## Emits reeling_changed only when the reeling state actually flips.
+func _set_reeling(active: bool) -> void:
+	if active == _is_reeling:
+		return
+	_is_reeling = active
+	reeling_changed.emit(active)
 
 
 ## Reel mode follows the cable directly with two hooks. A single hook retains

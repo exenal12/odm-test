@@ -55,6 +55,7 @@ func _build_ground() -> void:
 	var body := StaticBody3D.new()
 	body.name = "ForestFloor"
 	body.add_to_group("nav_geometry")
+	body.add_to_group("surface_grass")
 	body.position.y = -0.5
 	body.collision_layer = WORLD_LAYER
 	body.collision_mask = 0
@@ -193,6 +194,7 @@ func _build_supply_platform(tree: Node3D) -> void:
 	tree.add_child(platform)
 	var deck := _cylinder_body(platform, "Deck", Vector3.ZERO, DECK_THICKNESS, reach,
 		_wood_material, false)
+	deck.add_to_group("surface_wood")
 	var deck_mesh := (deck.get_child(0) as MeshInstance3D).mesh as CylinderMesh
 	deck_mesh.top_radius = reach
 	deck_mesh.radial_segments = 24

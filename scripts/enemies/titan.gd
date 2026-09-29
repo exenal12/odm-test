@@ -133,6 +133,9 @@ var _pending_grab: bool = false
 var _attack_hand: int = 0
 var _grab_cooldown_left: float = 0.0
 var _grab_tick_left: float = 0.0
+var _step_player: AudioStreamPlayer3D
+var _step_streams: Array[AudioStream] = []
+var _last_step_index: int = -1
 var _hand_health: float = 0.0
 var _grab_bone: int = -1
 var _grab_arm: GrabArm
@@ -146,6 +149,7 @@ var _squeeze: float = 0.0
 var _last_hit_damage: float = 20.0
 
 func _ready() -> void:
+	_setup_step_audio()
 	_skin_material = ShaderMaterial.new()
 	_skin_material.shader = SKIN_SHADER
 	flash_mesh.material_override = _skin_material
@@ -614,6 +618,35 @@ func _finish_move(delta: float) -> void:
 		_debug_label.text = "%s  awareness %.2f" % [State.keys()[state], awareness]
 
 
+## Creates the positional player and loads titan footstep variants.
+func _setup_step_audio() -> void:
+	_step_player = AudioStreamPlayer3D.new()
+	_step_player.bus = &"SFX"
+	_step_player.max_distance = 160.0
+	_step_player.unit_size = 25.0
+	add_child(_step_player)
+	for i in 3:
+		var path := "res://assets/audio/sfx/footstep_titan_%03d.wav" % i
+		if ResourceLoader.exists(path):
+			_step_streams.append(load(path))
+
+
+## Plays a footstep twice per walk cycle (assumes contacts at 0% and 50%).
+func _update_step_audio() -> void:
+	if _step_streams.is_empty() or animation_player.current_animation != "titan/Walk":
+		_last_step_index = -1
+		return
+	var length := animation_player.current_animation_length
+	if length <= 0.0:
+		return
+	var index := int(animation_player.current_animation_position / length * 2.0)
+	if _last_step_index != -1 and index != _last_step_index:
+		_step_player.stream = _step_streams[randi() % _step_streams.size()]
+		_step_player.pitch_scale = randf_range(0.9, 1.1)
+		_step_player.play()
+	_last_step_index = index
+
+
 func _play_locomotion() -> void:
 	var speed := Vector2(velocity.x, velocity.z).length()
 	if speed < 0.4:
@@ -624,6 +657,7 @@ func _play_locomotion() -> void:
 		if animation_player.current_animation != "titan/Walk":
 			animation_player.play(&"titan/Walk", 0.4)
 		animation_player.speed_scale = speed / walk_anim_stride
+		_update_step_audio()
 
 
 func _update_segments() -> void:

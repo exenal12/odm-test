@@ -34,6 +34,7 @@ var _low_health_alpha: float = 0.0
 var _gas_fill: StyleBoxFlat
 var _ghost_tween: Tween
 var _escape_tween: Tween
+var _shake_tween: Tween
 
 
 func _ready() -> void:
@@ -59,7 +60,7 @@ func _track_titan(node: Node) -> void:
 func _on_titan_died(_titan: Titan) -> void:
 	_kills += 1
 	kill_count.text = str(_kills)
-	kill_count.pivot_offset = Vector2(kill_count.size.x, kill_count.size.y * 0.5)
+	kill_count.pivot_offset = Vector2(0.0, kill_count.size.y * 0.5)
 	kill_count.scale = Vector2.ONE * 1.5
 	create_tween().tween_property(kill_count, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
 
@@ -131,11 +132,14 @@ func _on_health_changed(current: float, maximum: float) -> void:
 func _on_damaged(_amount: float, _source: Node) -> void:
 	damage_flash.color.a = 0.5
 	create_tween().tween_property(damage_flash, "color:a", _low_health_alpha, 0.5)
-	var panel: Control = health_bar.get_parent().get_parent().get_parent()
-	var shake := create_tween()
-	for i in 4:
-		shake.tween_property(panel, "position:x", 24.0 + randf_range(-6.0, 6.0), 0.03)
-	shake.tween_property(panel, "position:x", 24.0, 0.03)
+	var root_ui: Control = $Root
+	if _shake_tween:
+		_shake_tween.kill()
+	_shake_tween = create_tween()
+	for i in 5:
+		var strength := 8.0 * (1.0 - i / 5.0)
+		_shake_tween.tween_property(root_ui, "position", Vector2(randf_range(-strength, strength), randf_range(-strength, strength)), 0.03)
+	_shake_tween.tween_property(root_ui, "position", Vector2.ZERO, 0.03)
 
 
 func _on_died() -> void:

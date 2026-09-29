@@ -20,6 +20,7 @@ script = ExtResource("2_soldier")
 run_speed = 4.0
 hook_retry = 5.0
 rear_angle_deg = 40.0
+resume_gas_fraction = 1.0
 strike_chance = 0.097
 strike_cooldown = 5.0
 

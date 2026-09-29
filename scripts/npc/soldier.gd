@@ -52,6 +52,8 @@ signal died(soldier: Soldier)
 @export var reaction_time: float = 1.5
 ## Only strike while the titan is focused on something other than this soldier.
 @export var require_distraction: bool = true
+## Seconds hooked onto a titan without landing a strike before giving up and re-flanking.
+@export var max_hook_time: float = 5.0
 ## Most soldiers allowed hooked onto one titan at once. 0 means unlimited.
 @export var max_attackers: int = 1
 
@@ -86,6 +88,7 @@ var _retarget_timer: float = 0.0
 var _hit_timer: float = -1.0
 var _aim_attempt: int = 0
 var _check_pending: bool = false
+var _hook_hold: float = 0.0
 var _refueling: bool = false
 var _refuel_goal: Vector3 = Vector3.ZERO
 var _traversing: bool = false
@@ -223,6 +226,14 @@ func _think(nape: Vector3, delta: float) -> void:
 				hooked = false
 		else:
 			_aim_attempt += 1
+
+	if hooked:
+		_hook_hold += delta
+		if _hook_hold >= max_hook_time:
+			_miss()
+			return
+	else:
+		_hook_hold = 0.0
 
 	var flat := nape - global_position
 	flat.y = 0.0
@@ -423,6 +434,8 @@ func _slot_free() -> bool:
 ## A failed strike: let go and retreat to flank again.
 func _miss() -> void:
 	odm.release_hooks()
+	_hook_hold = 0.0
+	_check_pending = false
 	_reflank_left = REFLANK_TIMEOUT
 	_reaction_left = -1.0
 	_hook_timer = hook_retry

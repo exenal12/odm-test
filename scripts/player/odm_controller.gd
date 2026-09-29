@@ -212,6 +212,7 @@ func refill_gas(amount: float = -1.0) -> void:
 
 ## Detaches both hooks and hides the cables.
 func release_hooks() -> void:
+	_ai_fire = [false, false]
 	for pair in [[_left_hook, true], [_right_hook, false]]:
 		var hook: ODMHook = pair[0]
 		if hook != null and hook.is_attached():

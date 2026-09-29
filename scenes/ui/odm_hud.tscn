@@ -5,6 +5,7 @@
 [ext_resource type="Theme" path="res://scenes/ui/hud_theme.tres" id="3_theme"]
 [ext_resource type="Script" path="res://scripts/ui/reticle.gd" id="4_reticle"]
 [ext_resource type="Script" path="res://scripts/ui/hook_indicator.gd" id="5_hook"]
+[ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="6_minimap"]
 
 [node name="ODMHUD" type="CanvasLayer" groups=["odm_hud"]]
 layer = 10
@@ -152,41 +153,50 @@ max_value = 100.0
 value = 100.0
 show_percentage = false
 
-[node name="KillPanel" type="PanelContainer" parent="Root"]
-custom_minimum_size = Vector2(0, 72)
+[node name="TopRight" type="VBoxContainer" parent="Root"]
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -140.0
+offset_left = -184.0
 offset_top = 24.0
 offset_right = -24.0
-offset_bottom = 68.0
+offset_bottom = 24.0
 grow_horizontal = 0
 mouse_filter = 2
+theme_override_constants/separation = 6
 
-[node name="VBox" type="VBoxContainer" parent="Root/KillPanel"]
+[node name="Minimap" type="Control" parent="Root/TopRight"]
+custom_minimum_size = Vector2(160, 160)
 layout_mode = 2
 mouse_filter = 2
-alignment = 1
-theme_override_constants/separation = -8
+script = ExtResource("6_minimap")
 
-[node name="KillTitle" type="Label" parent="Root/KillPanel/VBox"]
-layout_mode = 2
+[node name="KillRow" type="HBoxContainer" parent="Root"]
+layout_mode = 1
+offset_left = 24.0
+offset_top = 102.0
+offset_right = 280.0
+offset_bottom = 132.0
 mouse_filter = 2
-theme_override_font_sizes/font_size = 11
+alignment = 0
+theme_override_constants/separation = 8
+
+[node name="KillTitle" type="Label" parent="Root/KillRow"]
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 12
 text = "TITANS SLAIN"
-horizontal_alignment = 2
 
-[node name="KillCount" type="Label" parent="Root/KillPanel/VBox"]
+[node name="KillCount" type="Label" parent="Root/KillRow"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
-theme_override_colors/font_color = Color(0.85, 0.2, 0.12, 1)
-theme_override_constants/outline_size = 4
-theme_override_font_sizes/font_size = 28
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 22
 text = "0"
-horizontal_alignment = 2
 
 [node name="EscapePanel" type="PanelContainer" parent="Root"]
 unique_name_in_owner = true

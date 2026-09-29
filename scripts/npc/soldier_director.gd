@@ -28,6 +28,8 @@ extends Node3D
 @export var reaction_time: float = 1.5
 ## Soldiers only strike while the titan is focused on something else.
 @export var require_distraction: bool = true
+## Seconds a soldier stays hooked onto a titan without striking before giving up.
+@export var max_hook_time: float = 5.0
 ## Most soldiers hooked onto one titan at once. 0 means unlimited.
 @export var max_attackers: int = 1
 
@@ -74,6 +76,7 @@ func _apply_soldier(soldier: Soldier) -> void:
 	soldier.reaction_time = reaction_time
 	soldier.require_distraction = require_distraction
 	soldier.max_attackers = max_attackers
+	soldier.max_hook_time = max_hook_time
 
 
 func _apply_titan(titan: Titan) -> void:

@@ -300,3 +300,97 @@ I found two things that were off.
 The gas panel's bottom edge and the controls hint's bottom edge sit at the same height. The controls hint and the kill counter share the same right edge.
 
 One thing I left alone: the reel panel is narrower than the gas panel above it, so its right edge doesn't line up. I can stretch it to the same width if you want that.
+
+## User
+
+there should be a minimap showing red dots for titans, white dots for fellow soldiers, and green dots for gas refill stations. the titan kill count should be underneath the minimap. the minimap should be on the top right of the screen, and the kill count design should be more minimal
+
+## Assistant
+
+I should check whether gas refill stations exist in the data, and search for how soldiers and titans are grouped.
+- Tool call: `Grep` {"pattern": "refill|station|add_to_group|is_in_group|get_nodes_in_group", "path": "/home/bazzite/odm-test", "glob": "*.{gd,tscn}", "output_mode": "content", "-n": true, "-i": true, "head_limit": 40}
+- Tool call: `Grep` {"pattern": "^class_name|^extends", "path": "/home/bazzite/odm-test/scripts/npc", "output_mode": "content"}
+
+I'm checking whether the titan node actually gets added to the "titan" group somewhere else in the code, since director relies on that group but I only found one reference in titan.gd.
+- Tool call: `Grep` {"pattern": "\"titan\"|&\"titan\"|groups=\\[[^\\]]*titan", "path": "/home/bazzite/odm-test", "glob": "*.{gd,tscn}", "output_mode": "content", "-n": true}
+- Tool call: `Grep` {"pattern": "alive|is_dead", "path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "output_mode": "content", "-n": true, "head_limit": 6}
+
+I'm planning a minimap control that draws a circular background with a player marker at center and camera-yaw-up rotation so it matches the view, using roughly a 150m range with distant objects like titans or stations clamping to the edge instead of disappearing.
+
+Each frame it queries the titan, soldier, and gas station groups, finds the player and camera heading, then draws colored dots for each: red for titans, white for soldiers, green diamonds for stations, all clipped within the circle's radius. I'm also redesigning the top-right UI into a compact column with the minimap panel plus a minimal kill counter row replacing the old panel, showing a dim label and a bone-colored count.
+
+For the minimap script, I'm computing heading-up rotation by projecting the camera's forward vector onto the XZ plane, deriving a perpendicular right vector, then converting each target's world offset into screen coordinates using dot products against forward and right. I'm also placing a north tick mark using the same projection so it rotates correctly with the player's facing direction.
+
+I need to draw the "N" label using the theme's default font, clip the minimap to a circular frame, add a small triangular player marker with a dark outline, and pull alive status from the titan and soldier controllers along with their global positions. I'll expose the minimap radius and world range as exported variables for tuning scale.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scripts/ui/minimap.gd", "contents": "extends Control\n## Circular heading-up radar: red titans, white soldiers, green gas stations.\n\nconst BG := Color(0.055, 0.055, 0.06, 0.8)\nconst RING := Color(0.72, 0.16, 0.1, 1.0)\nconst BONE := Color(0.88, 0.84, 0.74, 1.0)\nc...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && grep -n \"KillPanel\" scenes/ui/odm_hud.tscn | head -3; grep -n \"kill_count\" scripts/ui/odm_hud.gd"}
+
+I'm swapping out the KillPanel structure for a new TopRight layout, setting up the count label inside an HBox with its pivot anchored to the right-middle based on its size.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\na=s.index('[node name=\"KillPanel\"')\nb=s.index('[node name=\"EscapePanel\"')\nnew='''[node name=\"TopRight\" type=\"VBoxContainer\" parent=\"Root\"]\nlayout_mode = 1\nanchors_preset = 1\nan...
+
+The TopRight height of 200 looks plausible, and it ran without script errors, so I'll export the transcript now.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 tools/export_cursor_transcript.py 99c6085f-cdd5-4ae0-af1c-b8b81de5ccea --title \"HUD visual restyle\" | tail -1"}
+
+I added the minimap to the top right, with the kill count underneath it and simplified. I loaded the forest world headless and it ran with no script errors. Headless mode may not run the drawing code, so I haven't seen the map on screen.
+
+**Minimap** (`scripts/ui/minimap.gd`, placed in `scenes/ui/odm_hud.tscn`)
+- **Shape:** it is a 160 px dark circle with a rust-red ring, matching the other panels.
+- **Dots:** titans are red, soldiers are white, and gas stations are green diamonds. Dead titans and soldiers are skipped.
+- **Player and heading:** you're the bone-coloured arrow in the centre. The map rotates so the top always points where the camera faces, and a small "N" marks north.
+- **Range:** things beyond the range stick to the ring edge, dimmed, so you can still tell which way they are. The range is 150 m (`world_range` on the minimap), and you can change it in the Inspector.
+
+**Kill count**
+- It is now a single line under the map, right-aligned: a small dim "TITANS SLAIN" and a 22 px number. There is no panel or border.
+- It still pops when the count goes up.
+
+In the forest world test the scene had 1 titan, 2 soldiers and 4 gas stations, and all of them are in the groups the minimap reads.
+
+The right edge lines up with the controls hint below. The map top lines up with the health panel at the same 24 px margin.
+
+## User
+
+move the "titans slain" text underneath the health bar and keep the text alignment centered
+
+## Assistant
+
+I need the kill row positioned below the health panel, centered to its width, but wrapping both in a VBox would break the shake effect since it directly manipulates the health panel's position via its parent chain. I should keep the health panel absolutely positioned and instead apply shake through a different mechanism that won't be overridden by container layout.
+
+Simplest approach: don't wrap them together—just place KillRow as its own Control anchored at top-left with an offset that puts it right below the health panel, keeping the shake logic untouched since it only affects the health panel independently. I'll reparent the KillRow node under Root with manual layout offsets and update any child paths accordingly, while leaving TopRight as-is since it only holds the minimap.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('''[node name=\"KillRow\" type=\"HBoxContainer\" parent=\"Root/TopRight\"]\nlayout_mode = 2\nmouse_filter = 2\nalignment = 2''','''[node name=\"KillRow\" type=\"HBoxContainer\" pa...
+
+I moved the "TITANS SLAIN" text and count to just under the health panel, at the top left. The scene and the forest world both load with no errors, but I haven't seen it on screen.
+
+- **Position:** the row starts 6 px below the health panel. It has the same left edge and the same 256 px width as the panel.
+- **Alignment:** the text and number are centred under the health bar.
+- **Minimap:** it is now the only thing in the top-right column, and it didn't change.
+
+The health panel still shakes when you take damage, but the kill row doesn't move with it. If that looks odd, I can make the row shake with the panel.
+
+## User
+
+the whole UI should move when damaged. also, i meant the text should be justified right; and the "titans slain" text should be centered next to the number
+
+## Assistant
+
+I'm thinking I can shake the whole UI by offsetting the Root control's position slightly and resetting it, making sure to kill any prior shake tween first to avoid drift. For the kill row, I want the alignment set to the right.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('offset_bottom = 132.0\\nmouse_filter = 2\\nalignment = 1','offset_bottom = 132.0\\nmouse_filter = 2\\nalignment = 2')\ns=s.replace('size_flags_vertical = 8\\nmouse_filter = 2\\nt...
+
+I made both changes. I checked in a headless run that the shake ends at rest and the row is right-aligned, but I haven't seen either on screen.
+
+- **Whole-UI shake:** taking damage now shakes the entire HUD. That includes the minimap, kill count, gas and reel panels, and hint text. The shake is a quick jitter of up to 8 px in both directions that fades out and then returns the HUD to (0, 0). A hit during a shake restarts it, so the HUD can't drift. This replaces the shake that only moved the health panel.
+- **Kill row:** "TITANS SLAIN" and the number are pushed to the right edge, lined up with the right side of the health bar. The label is now vertically centred next to the number, not sitting on its baseline.
+
+The change is in `scripts/ui/odm_hud.gd` and `scenes/ui/odm_hud.tscn`.
+
+## User
+
+left justify the text
+
+## Assistant
+
+I'm starting alignment at zero and resolving the ambiguity by treating "the text" as the kill row, left-justified. Then I'm shifting the number's pivot from the right edge to a left-middle position.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('offset_bottom = 132.0\\nmouse_filter = 2\\nalignment = 2','offset_bottom = 132.0\\nmouse_filter = 2\\nalignment = 0')\nopen(p,\"w\").write(s)\np=\"scripts/ui/odm_hud.gd\"\ns=open...
+
+I left-justified the kill row. "TITANS SLAIN" and the number now start at the left edge, lined up with the health panel above. I confirmed the change in a headless run but haven't seen it on screen.
+
+I also moved the pivot of the count's pop animation to its left side. The number now grows out from the left, not the right, which would look off with left-aligned text.

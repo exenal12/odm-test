@@ -953,3 +953,49 @@ If you want jumping while hooked, the usual approach is a small "hook jump": in 
 Do you want me to add it? If so, should it release the hooks?
 
 I'm checking player.gd around lines 295-320: jump handling only lives in the else branch, so whenever odm.is_active() is true (hooked or boosting), the jump input is simply skipped rather than overridden — and jump also still requires being on the floor. This looks like a question to answer rather than something to edit.
+
+## User
+
+also, it looks like the NPCs don't unhook after a missed attack
+
+## Assistant
+
+I'm digging into how `_miss()` triggers `release_hooks()`, wondering if the real issue is when a strike attempt gets blocked by `require_distraction` — the soldier stays hooked without actually missing, which could explain the "not unhooking after missed attack" behavior rather than an actual miss condition.
+
+Actually, tracing further: after a genuine miss and release, the next `_think` frame could immediately trigger `_try_traverse` since the retreat goal sits farther than the traverse distance threshold, causing the soldier to hook onto new scenery right away — which visually looks like they never unhooked, just swapped cables instantly. There's also a possibility that `_ai_fire`'s pending request from the same frame interferes with the release timing since `_update_strike` runs after `_think` in the physics step.
+
+I want to verify this by forcing strike chance to zero, disabling distraction requirements, and logging the hooked/traversing state each frame right after a miss to confirm what's actually happening.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/tmp_check.gd <<'EOF'\nextends SceneTree\n\nfunc _initialize() -> void:\n\tvar world := (load(\"res://scenes/world/forest_world.tscn\") as PackedScene).instantiate()\n\tvar d := world.get_node(\"SoldierDirector\")\n\td.soldier_count = 1\n\td.strik...
+
+Since the miss/unhook logic seems fine, I'm wondering what else could explain the user's issue -- maybe with require_distraction enabled, a hooked soldier just stays attached and hangs there being attacked by the titan without ever swinging, which could look like a bug from the user's perspective.
+
+I'm also considering a different scenario: when hooked and the distance exceeds strike range, the reattach logic might keep firing at the same nape anchor if the gap is too small, causing an infinite loop where the soldier stays hooked to the titan's body without ever striking or missing. This suggests I need a stuck-timeout fix — if hooked without progress toward a strike for too long, force an unhook or retry with a different target point.
+
+I'll add a `_hook_hold` timer that accumulates while hooked and stationary, resetting when unhooked or traversing, and trigger a forced `_miss()` once it exceeds `max_hook_time` (5 seconds), exposing that value as a tunable in Tactics/director settings. I also want `release_hooks()` in the ODM controller to clear any pending fire requests so stale attack intents don't linger after a release.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tvar flat := nape - global_position\n\tflat.y = 0.0\n\todm.ai_steer = flat\n\n\tvar behind := _behind_titan()", "new_string": "\tif hooked:\n\t\t_hook_hold += delta\n\t\tif _hook_hold >= max_hook_time:\n\t\t\t_miss()\n\t\t\tre...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "func _miss() -> void:\n\todm.release_hooks()", "new_string": "func _miss() -> void:\n\todm.release_hooks()\n\t_hook_hold = 0.0\n\t_check_pending = false"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "var _refueling: bool = false", "new_string": "var _hook_hold: float = 0.0\nvar _refueling: bool = false"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "## Most soldiers allowed hooked", "new_string": "## Seconds hooked onto a titan without landing a strike before giving up and re-flanking.\n@export var max_hook_time: float = 5.0\n## Most soldiers allowed hooked"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "## Most soldiers hooked onto one titan", "new_string": "## Seconds a soldier stays hooked onto a titan without striking before giving up.\n@export var max_hook_time: float = 5.0\n## Most soldiers hooked onto one titan"...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "\tsoldier.max_attackers = max_attackers", "new_string": "\tsoldier.max_attackers = max_attackers\n\tsoldier.max_hook_time = max_hook_time"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/player/odm_controller.gd", "old_string": "func release_hooks() -> void:", "new_string": "func release_hooks() -> void:\n\t_ai_fire = [false, false]"}
+
+Let me check that the release_hooks placement looks fine with the docstring above it, then run the default scenario test where require_distraction is true—soldier hooks in, waits, then times out—and log the hooked durations.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/tmp_check.gd <<'EOF'\nextends SceneTree\n\nfunc _initialize() -> void:\n\tvar world := (load(\"res://scenes/world/forest_world.tscn\") as PackedScene).instantiate()\n\tvar d := world.get_node(\"SoldierDirector\")\n\td.soldier_count = 1\n\td.soldi...
+
+I haven't triggered the stuck scenario yet, so I'll force it differently: teleport the player 500m away so the titan retargets to the soldier instead, then run the test.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/tmp_check.gd <<'EOF'\nextends SceneTree\n\nfunc _initialize() -> void:\n\tvar world := (load(\"res://scenes/world/forest_world.tscn\") as PackedScene).instantiate()\n\tvar d := world.get_node(\"SoldierDirector\")\n\td.soldier_count = 1\n\td.soldi...
+
+Soldiers now let go of the titan after about 5 seconds of hanging on without landing a strike. A failed strike itself already released the hooks correctly.
+
+**The strike-miss path was fine.** With `strike_chance` at 0 in a headless run, every failed strike released both hooks and started the re-flank, with no traversal hook picked up right after.
+
+**What I think you were seeing:** a soldier stayed hooked and never released. Two situations cause that, and neither counts as a "miss":
+- **Waiting for a distraction.** With `require_distraction` on, a soldier hooked onto a titan that is targeting it never swings, so it hangs there and the titan hits it.
+- **Anchored too far from the nape.** A soldier can latch onto the titan's chest or shoulder more than the strike range (5 m) from the nape. It can't strike, and it doesn't re-hook if the anchor is close enough.
+
+**What changed**
+- **Hook time limit:** after `max_hook_time` (5 s) hooked onto a titan without striking, the soldier treats it as a miss. It lets go, backs off and re-flanks. The setting is on `Soldier` under "Tactics" and on `SoldierDirector`. In a run where I moved the player far away so the titan targeted the soldier, it hooked, waited about 4.9 s, and released. This happened twice.
+- **Pending hook fires cleared on release:** `release_hooks` in the controller now also drops any queued hook fire. Before, a hook queued in the same frame as a miss could re-fire right after the release.
+
+I couldn't reproduce the exact case you saw, so let me know if it still happens after this. If soldiers still stay hooked, tell me whether the titan was chasing the player or the soldier at the time.

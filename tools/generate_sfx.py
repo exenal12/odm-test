@@ -106,16 +106,97 @@ def whoosh(seed, dur=0.7, lo=500, hi=3200, peak=0.4):
 
 def blade_swing(seed, dur=0.32):
     rng = np.random.default_rng(seed)
-    base = whoosh(seed, dur, lo=1000, hi=3800, peak=0.45)
-    base = one_pole_lowpass(base, 5000)
+    base = whoosh(seed, dur, lo=750, hi=2800, peak=0.45)
+    base = one_pole_lowpass(base, 4000)
     n = len(base)
     t = np.arange(n) / SR
     ring = sum(
         np.sin(2 * np.pi * f * (1 + rng.uniform(-0.01, 0.01)) * t) / (i + 1)
-        for i, f in enumerate([1900, 2850])
+        for i, f in enumerate([1500, 2250])
     )
     ring *= bell(n, 0.45, 0.12) * 0.12
     return base + norm(ring, 0.12)
+
+
+def decay(n, rate):
+    return np.exp(-np.arange(n) / SR * rate)
+
+
+def thump(n, f0, f1, rate):
+    freq = np.linspace(f0, f1, n)
+    phase = 2 * np.pi * np.cumsum(freq) / SR
+    return np.sin(phase) * decay(n, rate)
+
+
+def footstep_player(seed, dur=0.22):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    f0 = rng.uniform(110, 150)
+    body = thump(n, f0, 55, 28)
+    grit = one_pole_lowpass(rng.standard_normal(n), rng.uniform(1800, 2800)) * decay(n, 45)
+    click = svf_bandpass(rng.standard_normal(n), 3200, 1.5) * decay(n, 200)
+    return norm(body) * 0.8 + norm(grit) * 0.55 + norm(click) * 0.2
+
+
+def footstep_titan(seed, dur=1.1):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    boom = thump(n, rng.uniform(55, 70), 24, 5.5)
+    sub = thump(n, 34, 20, 3.5)
+    rumble = one_pole_lowpass(pink_noise(n, rng), 220) * decay(n, 6)
+    crack = one_pole_lowpass(rng.standard_normal(n), 900) * decay(n, 60)
+    return norm(boom) + 0.7 * norm(sub) + 0.6 * norm(rumble) + 0.25 * norm(crack)
+
+
+def impact_land(seed, dur=0.4):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    body = thump(n, 95, 40, 14)
+    dust = one_pole_lowpass(rng.standard_normal(n), 1500) * decay(n, 22)
+    return norm(body) + 0.5 * norm(dust)
+
+
+def impact_hard(seed, dur=0.35):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    body = thump(n, 160, 60, 20)
+    crack = svf_bandpass(rng.standard_normal(n), 2200, 0.9) * decay(n, 55)
+    debris = one_pole_lowpass(rng.standard_normal(n), 3000) * decay(n, 18)
+    return norm(body) * 0.8 + norm(crack) * 0.7 + 0.3 * norm(debris)
+
+
+def gas_refill(seed, dur=0.28):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    noise = pink_noise(n, rng)
+    hiss = svf_bandpass(noise, np.linspace(3200, 4200, n), 0.8)
+    return one_pole_lowpass(norm(hiss), 5000) * env(n, 0.03, 0.14, 1.5)
+
+
+def hook_launch(seed, dur=0.45):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    burst = svf_bandpass(pink_noise(n, rng), np.linspace(4500, 2000, n), 0.9) * decay(n, 18)
+    zip_ = svf_bandpass(pink_noise(n, rng), np.linspace(900, 3800, n), 2.0)
+    zip_ *= env(n, 0.005, dur * 0.8, 1.5) * 0.6
+    tone = thump(n, 700, 260, 30)
+    click = svf_bandpass(rng.standard_normal(n), 4500, 2.5) * decay(n, 400)
+    return norm(burst) + norm(zip_) * 0.7 + 0.35 * norm(tone) + 0.4 * norm(click)
+
+
+def hook_retract(seed, dur=0.55):
+    rng = np.random.default_rng(seed)
+    n = int(dur * SR)
+    zip_ = svf_bandpass(pink_noise(n, rng), np.linspace(3800, 900, n), 2.0)
+    zip_ *= env(n, 0.01, dur * 0.5, 1.2)
+    t = np.arange(n) / SR
+    rattle = (np.sin(2 * np.pi * 70 * t) > 0.6).astype(float)
+    rattle = svf_bandpass(rattle + 0.2 * rng.standard_normal(n), 2600, 1.5) * env(n, 0.01, dur * 0.4, 1.0)
+    snap_n = int(0.12 * SR)
+    snap = np.zeros(n)
+    snap[-snap_n:] = svf_bandpass(rng.standard_normal(snap_n), 2800, 1.5) * decay(snap_n, 50) * 1.0
+    snap[-snap_n:] += thump(snap_n, 320, 120, 45) * 0.8
+    return norm(zip_) * 0.8 + 0.35 * norm(rattle) + norm(snap) * 0.7
 
 
 def write_wav(path, x):
@@ -151,6 +232,18 @@ def main():
     finalize("gas_hiss_loop", gas_hiss_loop(300), loop=True)
     for i in range(2):
         finalize(f"blade_swing_{i:03d}", blade_swing(400 + i, 0.3 + 0.05 * i))
+    for i in range(5):
+        finalize(f"footstep_player_{i:03d}", footstep_player(500 + i))
+    for i in range(3):
+        finalize(f"footstep_titan_{i:03d}", footstep_titan(600 + i, 1.0 + 0.1 * i))
+    finalize("impact_land", impact_land(700))
+    for i in range(3):
+        finalize(f"impact_hard_{i:03d}", impact_hard(710 + i))
+    for i in range(2):
+        finalize(f"gas_refill_{i:03d}", gas_refill(800 + i, 0.25 + 0.05 * i))
+    for i in range(2):
+        finalize(f"hook_launch_{i:03d}", hook_launch(900 + i))
+        finalize(f"hook_retract_{i:03d}", hook_retract(950 + i))
 
 
 if __name__ == "__main__":

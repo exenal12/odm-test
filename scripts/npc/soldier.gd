@@ -96,6 +96,9 @@ var _trav_time: float = 0.0
 var _trav_fired: bool = false
 var _reaction_left: float = -1.0
 var _reflank_left: float = 0.0
+var _climbing: bool = false
+var _climb_time: float = 0.0
+var _climb_retry: float = 0.0
 
 
 func _ready() -> void:
@@ -122,6 +125,7 @@ func take_damage(amount: float, _source: Node = null, _ignore_invulnerable: bool
 
 
 func _die() -> void:
+	_climbing = false
 	alive = false
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
 	odm.release_hooks()
@@ -140,6 +144,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_hook_timer = maxf(0.0, _hook_timer - delta)
 	_strike_timer = maxf(0.0, _strike_timer - delta)
+	_climb_retry = maxf(0.0, _climb_retry - delta)
 	_retarget_timer -= delta
 	if _retarget_timer <= 0.0 or not _target_valid():
 		_retarget_timer = 0.5
@@ -278,9 +283,10 @@ func _update_gas_state() -> void:
 func _nearest_station() -> Node3D:
 	var best: Node3D
 	var best_dist := INF
-	for node in get_tree().get_nodes_in_group("gas_station"):
+	for node in get_tree().get_nodes_in_group("gas_station") \
+			+ get_tree().get_nodes_in_group("gas_supplier"):
 		var station := node as Node3D
-		if station == null:
+		if station == null or (station.has_method("climb_route") and station.climb_route().is_empty()):
 			continue
 		var d := global_position.distance_squared_to(station.global_position)
 		if d < best_dist:
@@ -296,6 +302,18 @@ func _refuel_think(delta: float) -> Vector3:
 		_refueling = false
 		return Vector3.ZERO
 	_refuel_goal = station.global_position
+	if station.has_method("climb_route"):
+		if _climbing:
+			return _update_climb(station, delta)
+		var landing: Vector3 = station.landing_point()
+		if landing.y <= global_position.y + 3.0:
+			return _deck_walk(station)
+		var start: Vector3 = station.climb_route().start
+		_refuel_goal = Vector3(start.x, global_position.y, start.z)
+		if Vector2(start.x - global_position.x, start.z - global_position.z).length() < 2.5 \
+				and is_on_floor() and _climb_retry <= 0.0:
+			_begin_climb(station)
+			return Vector3.ZERO
 	var flat := _refuel_goal - global_position
 	flat.y = 0.0
 	odm.ai_steer = flat
@@ -309,6 +327,59 @@ func _refuel_think(delta: float) -> Vector3:
 	elif odm.get_gas() > 0.0:
 		_try_traverse()
 	return _ground_direction()
+
+
+## Fires both hooks at the platform's trunk anchor and reels straight up over the deck edge.
+func _begin_climb(station: Node3D) -> void:
+	odm.release_hooks()
+	_traversing = false
+	var origin := _eye()
+	odm.set_aim(origin, station.climb_route().anchor - origin)
+	odm.request_fire(true)
+	odm.request_fire(false)
+	_climbing = true
+	_climb_time = 0.0
+	_hook_timer = hook_retry
+
+
+## Lets go once over the deck, or gives up if the hooks missed or the reel stalls.
+func _update_climb(station: Node3D, delta: float) -> Vector3:
+	_climb_time += delta
+	odm.ai_steer = Vector3.ZERO
+	var center: Vector3 = station.deck_center()
+	var radial := Vector2(global_position.x - center.x, global_position.z - center.z).length()
+	if radial < float(station.deck_radius) - 0.6 and global_position.y > center.y + 0.1:
+		odm.release_hooks()
+		# Keep only a small hop so the reel's upward speed does not launch us off the deck.
+		var flat := Vector3(velocity.x, 0.0, velocity.z).limit_length(3.0)
+		velocity = flat + Vector3.UP * minf(velocity.y, 2.5)
+		_climbing = false
+	elif (_climb_time > 0.2 and not odm.is_hooked()) or _climb_time > 15.0:
+		odm.release_hooks()
+		_climbing = false
+		_climb_retry = 2.0
+	return Vector3.ZERO
+
+
+## On the deck: walk to the landing spot, going around the trunk rather than into it.
+func _deck_walk(station: Node3D) -> Vector3:
+	odm.ai_steer = Vector3.ZERO
+	if odm.is_hooked():
+		odm.release_hooks()
+	_traversing = false
+	var to: Vector3 = station.landing_point() - global_position
+	to.y = 0.0
+	if to.length() < 0.8:
+		return Vector3.ZERO
+	var center: Vector3 = station.deck_center()
+	var radial := global_position - center
+	radial.y = 0.0
+	var wanted: Vector3 = station.landing_point() - center
+	wanted.y = 0.0
+	if radial.angle_to(wanted) > 0.6:
+		var tangent := Vector3.UP.cross(radial).normalized()
+		return tangent if tangent.dot(wanted) > 0.0 else -tangent
+	return to.normalized()
 
 
 ## Starts a hook-and-reel hop toward the goal when it is far away.

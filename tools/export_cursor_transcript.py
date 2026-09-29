@@ -15,6 +15,7 @@ OUT = ROOT / "prompts" / "Cursor"
 
 
 TITLES = {
+    "4739e573-4cfa-4dbd-acf8-4c15e8cc7fce": "Tree platform gas suppliers",
     "99c6085f-cdd5-4ae0-af1c-b8b81de5ccea": "HUD visual restyle",
     "69ea6a94-af8b-40ab-92fa-3134eaa9ad7f": "Game sound implementation",
     "56af8281-2a05-4671-8076-25db710a5459": "Titan grab mechanic",

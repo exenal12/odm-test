@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://scripts/ui/reticle.gd" id="4_reticle"]
 [ext_resource type="Script" path="res://scripts/ui/hook_indicator.gd" id="5_hook"]
 [ext_resource type="Script" path="res://scripts/ui/minimap.gd" id="6_minimap"]
+[ext_resource type="Script" path="res://scripts/ui/refill_markers.gd" id="7_refill_markers"]
 
 [node name="ODMHUD" type="CanvasLayer" groups=["odm_hud"]]
 layer = 10
@@ -20,6 +21,16 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
+
+[node name="RefillMarkers" type="Control" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("7_refill_markers")
 
 [node name="BottomLeft" type="VBoxContainer" parent="Root"]
 layout_mode = 1
@@ -323,6 +334,6 @@ modulate = Color(1, 1, 1, 0.65)
 theme_override_font_sizes/font_size = 14
 text = "Q/LMB Left Hook  |  E/RMB Right Hook
 Shift Boost (air/hooked)  |  R Toggle reel
-V Cycle camera
+V Cycle camera  |  F Interact
 1 Debug map  |  2 Giant forest"
 horizontal_alignment = 2

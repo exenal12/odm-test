@@ -1,5 +1,5 @@
 extends Control
-## Circular heading-up radar: red titans, white soldiers, green gas stations.
+## Circular heading-up radar: red titans, white soldiers, green gas stations and suppliers.
 
 const BG := Color(0.055, 0.055, 0.06, 0.8)
 const RING := Color(0.72, 0.16, 0.1, 1.0)
@@ -41,6 +41,8 @@ func _draw() -> void:
 
 	for node in get_tree().get_nodes_in_group("gas_station"):
 		_draw_blip(node, origin, c, radius, right, fwd, STATION, 3.5, true)
+	for node in get_tree().get_nodes_in_group("gas_supplier"):
+		_draw_blip(node, origin, c, radius, right, fwd, STATION, 2.5, false)
 	for node in get_tree().get_nodes_in_group("soldier"):
 		if node.get("alive") != false:
 			_draw_blip(node, origin, c, radius, right, fwd, SOLDIER, 2.5, false)

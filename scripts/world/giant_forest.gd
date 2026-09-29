@@ -9,6 +9,11 @@ const FOREST_HALF_SIZE := BASE_FOREST_HALF_SIZE * MAP_SCALE
 const VISUAL_FLOOR_MARGIN := 5.0
 const TREE_SPACING := 20.0
 const BASE_TREE_COUNT := 76
+const SUPPLY_PLATFORM_COUNT := 6
+## Deck height; titan swats reach roughly 20 m, so stay clear of them.
+const SUPPLY_PLATFORM_HEIGHT := 24.0
+const DECK_THICKNESS := 0.4
+const GasSupplierScript := preload("res://scripts/world/gas_supplier.gd")
 
 var _rng := RandomNumberGenerator.new()
 var _bark_material: StandardMaterial3D
@@ -16,6 +21,7 @@ var _dark_bark_material: StandardMaterial3D
 var _leaf_materials: Array[StandardMaterial3D] = []
 var _ground_material: StandardMaterial3D
 var _rock_material: StandardMaterial3D
+var _wood_material: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -24,6 +30,7 @@ func _ready() -> void:
 	_dark_bark_material = _material(Color(0.16, 0.12, 0.09))
 	_ground_material = _material(Color(0.18, 0.26, 0.15))
 	_rock_material = _material(Color(0.27, 0.30, 0.27))
+	_wood_material = _material(Color(0.52, 0.36, 0.2))
 	_leaf_materials = [
 		_material(Color(0.10, 0.23, 0.14)),
 		_material(Color(0.15, 0.30, 0.17)),
@@ -32,8 +39,8 @@ func _ready() -> void:
 	_build_ground()
 	MapBounds.add_to(self, Vector2(FOREST_HALF_SIZE, FOREST_HALF_SIZE), WORLD_LAYER)
 	_build_trees()
+	_build_supply_platforms()
 	_build_undergrowth()
-	_build_refills()
 	_build_navigation()
 
 
@@ -117,6 +124,8 @@ func _fill_outer_grove(grove: Node3D, target_count: int, grid_radius: int) -> vo
 func _build_tree(tree: Node3D) -> void:
 	var height := _rng.randf_range(34.0, 52.0)
 	var radius := _rng.randf_range(2.4, 3.8)
+	tree.set_meta("height", height)
+	tree.set_meta("radius", radius)
 	_cylinder_body(tree, "Trunk", Vector3(0, height * 0.5, 0), height, radius,
 		_bark_material, true)
 	# Dark buttress roots broaden the base and make the trunks read as ancient trees.
@@ -142,6 +151,101 @@ func _build_tree(tree: Node3D) -> void:
 					Vector3(4.0, 2.8, 4.0), tier + arm)
 	_foliage(tree, Vector3(0, height - 1.0, 0), Vector3(7.0, 5.0, 7.0), 0)
 	_foliage(tree, Vector3(0, height + 3.0, 0), Vector3(4.5, 4.0, 4.5), 1)
+
+
+## Adds wooden platforms with kneeling gas suppliers to a few trees.
+func _build_supply_platforms() -> void:
+	var grove := get_node("GiantTrees")
+	var picker := RandomNumberGenerator.new()
+	picker.seed = 5150
+	var candidates: Array[Node3D] = []
+	for child in grove.get_children():
+		var tree := child as Node3D
+		if tree != null and tree.position.length() > 30.0 \
+				and float(tree.get_meta("height")) >= SUPPLY_PLATFORM_HEIGHT + 14.0:
+			candidates.append(tree)
+	var chosen: Array[Node3D] = []
+	var attempts := 0
+	while chosen.size() < SUPPLY_PLATFORM_COUNT and attempts < 500 and not candidates.is_empty():
+		attempts += 1
+		var tree := candidates[picker.randi_range(0, candidates.size() - 1)]
+		var spaced := true
+		for other in chosen:
+			if other.position.distance_to(tree.position) < 60.0:
+				spaced = false
+				break
+		if spaced:
+			chosen.append(tree)
+	for tree in chosen:
+		_build_supply_platform(tree)
+
+
+func _build_supply_platform(tree: Node3D) -> void:
+	var height: float = tree.get_meta("height")
+	var base_radius: float = tree.get_meta("radius")
+	var y := SUPPLY_PLATFORM_HEIGHT
+	var trunk_radius := _trunk_radius_at(base_radius, height, y)
+	var reach := trunk_radius + 3.5
+	_clear_branches_near(tree, y, reach)
+	var platform := Node3D.new()
+	platform.name = "SupplyPlatform"
+	platform.position = Vector3(0, y, 0)
+	tree.add_child(platform)
+	var deck := _cylinder_body(platform, "Deck", Vector3.ZERO, DECK_THICKNESS, reach,
+		_wood_material, false)
+	var deck_mesh := (deck.get_child(0) as MeshInstance3D).mesh as CylinderMesh
+	deck_mesh.top_radius = reach
+	deck_mesh.radial_segments = 24
+	var deck_bottom := -DECK_THICKNESS * 0.5
+	var strut_drop := 1.4
+	# 0.9x the trunk radius sits inside even the flat faces of the 8-sided trunk mesh.
+	var strut_root := _trunk_radius_at(base_radius, height, y - strut_drop) * 0.9
+	for i in 4:
+		var dir := Vector3(cos(TAU * float(i) / 4.0 + PI * 0.25), 0.0,
+			sin(TAU * float(i) / 4.0 + PI * 0.25))
+		_segment(platform, "Strut_%d" % i, dir * strut_root + Vector3.DOWN * strut_drop,
+			dir * (trunk_radius + 1.8) + Vector3.UP * (deck_bottom + 0.1), 0.18,
+			_wood_material, false)
+	var angle := picker_angle(tree)
+	var supplier := GasSupplierScript.new() as Node3D
+	supplier.name = "GasSupplier"
+	supplier.set("deck_radius", reach)
+	supplier.set("trunk_radius", base_radius)
+	supplier.position = Vector3(cos(angle), 0.0, sin(angle)) * (trunk_radius + 2.0) \
+		+ Vector3.UP * DECK_THICKNESS * 0.5
+	# Face outward toward approaching players.
+	supplier.rotation.y = atan2(cos(angle), sin(angle))
+	platform.add_child(supplier)
+
+
+## Matches the trunk mesh, which tapers to 75% of its base radius at the top.
+func _trunk_radius_at(base_radius: float, height: float, y: float) -> float:
+	return base_radius * (1.0 - 0.25 * clampf(y / height, 0.0, 1.0))
+
+
+## Removes branches and canopies that would pass through the platform or its headroom.
+func _clear_branches_near(tree: Node3D, y: float, reach: float) -> void:
+	var low := y - 2.5
+	var high := y + 3.0
+	for child in tree.get_children():
+		var node := child as Node3D
+		if node.name.begins_with("Branch_"):
+			var length := ((node.get_child(0) as MeshInstance3D).mesh as CylinderMesh).height
+			var axis := node.basis.y * length * 0.5
+			for step in 11:
+				var p := node.position - axis + axis * 2.0 * float(step) / 10.0
+				if Vector2(p.x, p.z).length() <= reach + 1.5 and p.y > low - 1.0 and p.y < high + 1.0:
+					node.free()
+					break
+		elif node.name.begins_with("Canopy"):
+			var half := node.scale
+			if Vector2(node.position.x, node.position.z).length() - half.x <= reach + 1.0 \
+					and node.position.y - half.y < high and node.position.y + half.y > low:
+				node.free()
+
+
+func picker_angle(tree: Node3D) -> float:
+	return fposmod(tree.position.x * 0.37 + tree.position.z * 0.53, TAU)
 
 
 func _cylinder_body(parent: Node3D, name: String, pos: Vector3, height: float,
@@ -234,33 +338,6 @@ func _build_undergrowth() -> void:
 		rock.scale = Vector3(1.3, 0.6, 1.0)
 		rock.material_override = _rock_material
 		details.add_child(rock)
-
-
-func _build_refills() -> void:
-	for pos in [Vector3(7, 0.6, 7), Vector3(1, 0.6, -45),
-			Vector3(-46, 0.6, 26), Vector3(43, 0.6, 45)]:
-		var station := (load("res://scripts/world/gas_refill.gd") as GDScript).new() as Area3D
-		station.name = "GasRefill"
-		station.position = pos
-		station.collision_layer = 0
-		station.collision_mask = WORLD_LAYER
-		var shape := SphereShape3D.new()
-		shape.radius = 2.0
-		var collider := CollisionShape3D.new()
-		collider.shape = shape
-		station.add_child(collider)
-		var glow := MeshInstance3D.new()
-		var mesh := SphereMesh.new()
-		mesh.radius = 0.6
-		mesh.height = 1.2
-		glow.mesh = mesh
-		var material := _material(Color(0.35, 0.9, 0.35))
-		material.emission_enabled = true
-		material.emission = Color(0.1, 0.7, 0.15)
-		material.emission_energy_multiplier = 2.0
-		glow.material_override = material
-		station.add_child(glow)
-		add_child(station)
 
 
 ## Bakes a titan-sized navmesh from the floor and trunk colliders (in a thread).

@@ -1,4 +1,4 @@
-# Add NPCs that fight titans
+# Allied NPC combat AI
 
 Chat ID: cd815041-13ae-494d-8132-41c471d3a589
 

@@ -1,4 +1,4 @@
-# Find free ODM gear and humanoid assets
+# Free asset sourcing for ODM gear
 
 Chat ID: 357deda7-ff27-4dab-aa0c-5ed1a9af4b0b
 

@@ -1,4 +1,4 @@
-# Why the prototype world is scripted
+# Prototype world architecture
 
 Chat ID: d1a8c542-4e17-46d6-beb0-934f454f7e25
 

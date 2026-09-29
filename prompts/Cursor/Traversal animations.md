@@ -1,4 +1,4 @@
-# Climbing, hanging, and mantling animations
+# Traversal animations
 
 Chat ID: af196328-78fc-4306-a622-3e35cf6e55f3
 

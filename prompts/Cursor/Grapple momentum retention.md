@@ -1,4 +1,4 @@
-# Preserve grapple momentum
+# Grapple momentum retention
 
 Chat ID: c1c42feb-8955-4987-9ac6-bff70f5d7927
 

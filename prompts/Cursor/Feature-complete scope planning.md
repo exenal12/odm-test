@@ -1,4 +1,4 @@
-# Plan missing crucial game features
+# Feature-complete scope planning
 
 Chat ID: 857831ba-dc67-4ce2-8b3c-112636922e6f
 

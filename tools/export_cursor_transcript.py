@@ -2,7 +2,7 @@
 """Export Cursor agent transcripts to prompts/Cursor/<title>.md.
 
 Usage: export_cursor_transcript.py [chat-id ...] [--title "Title"]
-With no chat IDs, every chat is exported. Titles default to the first prompt.
+With no chat IDs, every chat is exported. Titles come from TITLES; add a topic-based entry for each new chat.
 """
 import json
 import re
@@ -15,18 +15,19 @@ OUT = ROOT / "prompts" / "Cursor"
 
 
 TITLES = {
-    "357deda7-ff27-4dab-aa0c-5ed1a9af4b0b": "Find free ODM gear and humanoid assets",
-    "5a4d263f-b860-40ba-b17b-1d74ad01942c": "Plan the Attack on Titan game",
-    "81119004-a488-4777-a131-3a9a17b990f8": "Custom animations for ODM gear",
-    "857831ba-dc67-4ce2-8b3c-112636922e6f": "Plan missing crucial game features",
-    "9906c9ec-0bdc-4c8c-a5b3-77cba4aeaa7c": "Create Cursor chat transcripts",
-    "a67a7ef1-13d8-411d-ac2f-4289c0e0395f": "Set up Cursor IDE with Godot",
-    "af196328-78fc-4306-a622-3e35cf6e55f3": "Climbing, hanging, and mantling animations",
-    "c1c42feb-8955-4987-9ac6-bff70f5d7927": "Preserve grapple momentum",
-    "c4a7ce20-6d00-4c4b-988e-7884b3a51944": "Fix head swinging during attacks",
-    "cd815041-13ae-494d-8132-41c471d3a589": "Add NPCs that fight titans",
-    "d1a8c542-4e17-46d6-beb0-934f454f7e25": "Why the prototype world is scripted",
-    "e0d67b01-e4b6-45d8-aa23-e82c32d649c6": "Create a GitHub repo for the Godot game",
+    "56af8281-2a05-4671-8076-25db710a5459": "Titan grab mechanic",
+    "357deda7-ff27-4dab-aa0c-5ed1a9af4b0b": "Free asset sourcing for ODM gear",
+    "5a4d263f-b860-40ba-b17b-1d74ad01942c": "Game design planning",
+    "81119004-a488-4777-a131-3a9a17b990f8": "Custom animation feasibility",
+    "857831ba-dc67-4ce2-8b3c-112636922e6f": "Feature-complete scope planning",
+    "9906c9ec-0bdc-4c8c-a5b3-77cba4aeaa7c": "Chat transcript archiving",
+    "a67a7ef1-13d8-411d-ac2f-4289c0e0395f": "Godot MCP and Cursor setup",
+    "af196328-78fc-4306-a622-3e35cf6e55f3": "Traversal animations",
+    "c1c42feb-8955-4987-9ac6-bff70f5d7927": "Grapple momentum retention",
+    "c4a7ce20-6d00-4c4b-988e-7884b3a51944": "Head tracking during attacks",
+    "cd815041-13ae-494d-8132-41c471d3a589": "Allied NPC combat AI",
+    "d1a8c542-4e17-46d6-beb0-934f454f7e25": "Prototype world architecture",
+    "e0d67b01-e4b6-45d8-aa23-e82c32d649c6": "GitHub repository setup",
 }
 
 
@@ -52,9 +53,8 @@ def clean_user(t):
     return m.group(1) if m else re.sub(r"<timestamp>.*?</timestamp>", "", t, flags=re.S).strip()
 
 
-def make_title(prompt):
-    words = re.sub(r"[^\w\s-]", "", prompt).split()[:6]
-    return " ".join(words).capitalize() or "Untitled chat"
+def make_title(chat_id):
+    return f"Untitled chat {chat_id[:8]}"
 
 
 def export(chat_id, title=None):
@@ -72,7 +72,7 @@ def export(chat_id, title=None):
         else:
             turns.append((role, t))
     first = next((t for r, t in turns if r == "user"), "")
-    title = title or TITLES.get(chat_id) or make_title(first)
+    title = title or TITLES.get(chat_id) or make_title(chat_id)
     safe = re.sub(r'[\\/:*?"<>|]', "", title)
     out = [f"# {title}", "", f"Chat ID: {chat_id}", ""]
     for role, t in turns:

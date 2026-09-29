@@ -7,3 +7,4 @@ Before finishing each turn, update the transcript with the current user prompt a
 # Cursor chat transcripts
 
 For every Cursor chat about this project, keep a Markdown transcript in `prompts/Cursor/` named after the chat title (plus `.md`), with `## User` and `## Assistant` headings and the chat ID near the top. Before finishing each turn, run `python3 tools/export_cursor_transcript.py <chat-id> --title "<chat title>"` to refresh it (omit the ID to re-export all chats). Exclude system instructions and secrets.
+Titles must be a short topic summary synthesized from the first prompt, never the prompt copied word for word. Add an entry to `TITLES` in the exporter for each new chat (untitled chats appear as `Untitled chat <id>`).

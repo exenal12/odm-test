@@ -1,4 +1,4 @@
-# Set up Cursor IDE with Godot
+# Godot MCP and Cursor setup
 
 Chat ID: a67a7ef1-13d8-411d-ac2f-4289c0e0395f
 

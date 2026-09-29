@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterAgentResponse": [{ "command": ".cursor/hooks/export-transcripts.sh" }],
+    "stop": [{ "command": ".cursor/hooks/export-transcripts.sh" }]
+  }
+}

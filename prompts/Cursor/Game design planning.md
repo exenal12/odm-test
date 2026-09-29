@@ -1,4 +1,4 @@
-# Plan the Attack on Titan game
+# Game design planning
 
 Chat ID: 5a4d263f-b860-40ba-b17b-1d74ad01942c
 

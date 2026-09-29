@@ -1,4 +1,4 @@
-# Fix head swinging during attacks
+# Head tracking during attacks
 
 Chat ID: c4a7ce20-6d00-4c4b-988e-7884b3a51944
 

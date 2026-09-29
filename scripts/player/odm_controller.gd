@@ -56,7 +56,18 @@ signal reel_mode_changed(enabled: bool)
 ## Physics layer bit for grappleable surfaces (layer 2).
 @export var grapple_collision_mask: int = 2
 
+## When true, hooks/boost/steering come from the ai_* API instead of Input.
+@export var ai_controlled: bool = false
+
 var gas: float = 100.0
+## AI intent: world-space steering direction and boost hold.
+var ai_steer: Vector3 = Vector3.ZERO
+var ai_boost: bool = false
+
+var _ai_fire: Array[bool] = [false, false]
+var _ai_release: Array[bool] = [false, false]
+var _aim_origin_override: Vector3 = Vector3.ZERO
+var _aim_dir_override: Vector3 = Vector3.ZERO
 
 var _player: CharacterBody3D
 var _camera: Camera3D
@@ -144,7 +155,34 @@ func set_reel_enabled(enabled: bool) -> void:
 	reel_mode_changed.emit(reel_enabled)
 
 
+## AI: queues a hook fire toward the aim set by set_aim, consumed next tick.
+func request_fire(is_left: bool) -> void:
+	_ai_fire[0 if is_left else 1] = true
+
+
+## AI: queues a hook release, consumed next tick.
+func request_release(is_left: bool) -> void:
+	_ai_release[0 if is_left else 1] = true
+
+
+## AI: sets where the next fired hooks originate and point.
+func set_aim(origin: Vector3, direction: Vector3) -> void:
+	_aim_origin_override = origin
+	_aim_dir_override = direction.normalized()
+
+
+## AI: returns the point a hook is attached to (left preferred), or ZERO.
+func get_anchor() -> Vector3:
+	if left_attached():
+		return _left_hook.anchor_point
+	if right_attached():
+		return _right_hook.anchor_point
+	return Vector3.ZERO
+
+
 func _input(event: InputEvent) -> void:
+	if ai_controlled:
+		return
 	if event is InputEventKey and event.pressed and not event.echo and event.is_action_pressed("odm_reel_toggle"):
 		set_reel_enabled(not reel_enabled)
 		get_viewport().set_input_as_handled()
@@ -196,7 +234,7 @@ func ensure_input_actions() -> void:
 func physics_tick(delta: float) -> void:
 	if _player == null:
 		return
-	if _camera == null:
+	if _camera == null and not ai_controlled:
 		_camera = _player.get_viewport().get_camera_3d()
 
 	_handle_hook_input()
@@ -214,16 +252,21 @@ func physics_tick(delta: float) -> void:
 func _handle_hook_input() -> void:
 	_update_single_hook(_left_hook, "odm_hook_left", true)
 	_update_single_hook(_right_hook, "odm_hook_right", false)
+	_ai_fire = [false, false]
+	_ai_release = [false, false]
 
 
 ## Fires or detaches one hook and emits the corresponding public signals.
 func _update_single_hook(hook: ODMHook, action: StringName, is_left: bool) -> void:
-	if Input.is_action_just_pressed(action):
+	var side := 0 if is_left else 1
+	var pressed: bool = _ai_fire[side] if ai_controlled else Input.is_action_just_pressed(action)
+	var released: bool = _ai_release[side] if ai_controlled else Input.is_action_just_released(action)
+	if pressed:
 		hook_fired.emit(is_left)
 		if _try_fire(hook):
 			hook_latched.emit(is_left)
 			hooks_changed.emit(left_attached(), right_attached())
-	elif Input.is_action_just_released(action):
+	elif released:
 		if hook.is_attached():
 			hook.detach()
 			hook_detached.emit(is_left)
@@ -246,6 +289,8 @@ func _try_fire(hook: ODMHook) -> bool:
 ## Chooses the camera position as the hook origin, falling back to the player
 ## body when no camera is available.
 func _aim_origin() -> Vector3:
+	if ai_controlled:
+		return _aim_origin_override
 	if _camera:
 		return _camera.global_position
 	return _player.global_position + Vector3.UP * look_aim_height
@@ -254,6 +299,8 @@ func _aim_origin() -> Vector3:
 ## Chooses the camera's forward direction as the aim vector, falling back to
 ## the player's forward direction.
 func _aim_direction() -> Vector3:
+	if ai_controlled:
+		return _aim_dir_override if _aim_dir_override != Vector3.ZERO else -_player.global_transform.basis.z
 	if _camera:
 		return -_camera.global_transform.basis.z
 	return -_player.global_transform.basis.z
@@ -352,6 +399,9 @@ func _apply_air_steer(delta: float) -> void:
 		return
 	if not is_active():
 		return
+	if ai_controlled:
+		_player.velocity += ai_steer.normalized() * air_control * delta
+		return
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if input_dir == Vector2.ZERO or _camera == null:
 		return
@@ -371,7 +421,7 @@ func _apply_air_steer(delta: float) -> void:
 func _apply_boost(delta: float) -> void:
 	var was_boosting := _boosting
 	_boosting = false
-	var wants_boost := Input.is_action_pressed("odm_boost")
+	var wants_boost: bool = ai_boost if ai_controlled else Input.is_action_pressed("odm_boost")
 	var can_boost := wants_boost and (is_hooked() or not _player.is_on_floor()) and gas > 0.0
 	if not can_boost:
 		return

@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/world/map_switcher.gd" id="7_switch"]
 
 [ext_resource type="PackedScene" path="res://scenes/enemies/titan.tscn" id="8_titan"]
+[ext_resource type="Script" path="res://scripts/npc/soldier_director.gd" id="9_director"]
 
 [sub_resource type="Resource" id="Resource_bq33v"]
 script = ExtResource("4_t5ptc")
@@ -109,5 +110,10 @@ align_rotation_with_view = Callable()
 
 [node name="Titan" parent="." instance=ExtResource("8_titan")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -30)
+
+[node name="SoldierDirector" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 10)
+script = ExtResource("9_director")
+soldier_count = 2
 
 [node name="ODMHUD" parent="." unique_id=532337543 instance=ExtResource("6_hud")]

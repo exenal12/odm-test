@@ -116,7 +116,7 @@ func _on_overlap(target: Node3D, side: int) -> void:
 	sword_hit.emit(side == 0, target, damage)
 	var receiver: Node = target if target.has_method(&"on_sword_hit") else target.get_parent()
 	if receiver != null and receiver.has_method(&"on_sword_hit"):
-		receiver.on_sword_hit(target, damage)
+		receiver.on_sword_hit(target, damage, player.global_position)
 
 
 func _ensure_mouse_action(action: StringName, button: MouseButton) -> void:

@@ -47,6 +47,14 @@ const SEGMENTS := [
 @export_range(0.0, 1.0) var lose_threshold: float = 0.2
 @export var alert_duration: float = 1.2
 
+@export_group("Targeting")
+## A soldier this close is noticed regardless of facing or line of sight.
+@export var soldier_notice_range: float = 12.0
+## A rival target only steals focus when closer than current distance times this.
+@export_range(0.1, 1.0) var retarget_bias: float = 0.6
+## The nape only counts when the attacker is within this angle of the titan's back.
+@export_range(10.0, 180.0) var nape_rear_angle_deg: float = 100.0
+
 @export_group("Attack")
 @export var attack_range: float = 9.0
 @export var attack_damage: float = 25.0
@@ -88,6 +96,8 @@ var state: State = State.WANDER
 var alive: bool = true
 var awareness: float = 0.0
 var player: CharacterBody3D
+## Current focus: the player or a soldier.
+var target: CharacterBody3D
 var last_known: Vector3
 
 var _neck_bone: int = -1
@@ -167,8 +177,19 @@ func _physics_process(delta: float) -> void:
 		_finish_move(delta)
 		return
 	_acquire_player()
-	if not _check_nav_ready() or player == null:
+	_select_target()
+	if not _check_nav_ready():
 		_stop(delta)
+		_play_locomotion()
+		_finish_move(delta)
+		return
+	if target == null:
+		if state != State.WANDER and state != State.GRAB:
+			awareness = 0.0
+			_home = global_position
+			_set_state(State.WANDER)
+		if state == State.WANDER:
+			_state_wander(delta)
 		_play_locomotion()
 		_finish_move(delta)
 		return
@@ -197,6 +218,34 @@ func _acquire_player() -> void:
 		add_collision_exception_with(player)
 
 
+func _valid_target(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	return node.get(&"alive") != false
+
+
+## Picks the player or nearest soldier; the current target is favoured by retarget_bias.
+func _select_target() -> void:
+	if state == State.GRAB and _valid_target(target):
+		return
+	var candidates: Array[CharacterBody3D] = []
+	if _valid_target(player):
+		candidates.append(player)
+	for node in get_tree().get_nodes_in_group("soldier"):
+		if node is CharacterBody3D and _valid_target(node):
+			candidates.append(node)
+	var best: CharacterBody3D
+	var best_score := INF
+	for candidate in candidates:
+		var score := global_position.distance_to(candidate.global_position)
+		if candidate != target:
+			score /= retarget_bias
+		if score < best_score:
+			best_score = score
+			best = candidate
+	target = best
+
+
 func _check_nav_ready() -> bool:
 	if _nav_ready:
 		return true
@@ -214,20 +263,23 @@ func _eye_position() -> Vector3:
 
 
 func _sense(delta: float) -> void:
-	var to_player := player.global_position - global_position
+	var to_player := target.global_position - global_position
 	var dist := to_player.length()
 	var gain := 0.0
 	var sensed := false
 	if dist <= sight_range and (dist <= close_range or _in_view(to_player)) \
-			and _line_of_sight(player.global_position + Vector3.UP):
+			and _line_of_sight(target.global_position + Vector3.UP):
 		gain += sight_gain * pow(1.0 - dist / sight_range, distance_falloff)
 		sensed = true
-	var heard_range := hearing_range * _player_noise()
+	var heard_range := hearing_range * _target_noise()
 	if dist < heard_range:
 		gain += hearing_gain * pow(1.0 - dist / heard_range, distance_falloff)
 		sensed = true
+	if target != player and dist <= soldier_notice_range:
+		gain += sight_gain
+		sensed = true
 	if sensed:
-		last_known = player.global_position
+		last_known = target.global_position
 		awareness = minf(1.0, awareness + gain * delta)
 	else:
 		awareness = maxf(0.0, awareness - awareness_decay * delta)
@@ -239,17 +291,17 @@ func _in_view(to_player: Vector3) -> bool:
 	return forward.dot(flat) >= cos(deg_to_rad(sight_half_angle_deg))
 
 
-func _line_of_sight(target: Vector3) -> bool:
-	var query := PhysicsRayQueryParameters3D.create(_eye_position(), target)
+func _line_of_sight(point: Vector3) -> bool:
+	var query := PhysicsRayQueryParameters3D.create(_eye_position(), point)
 	query.collision_mask = 1
 	query.exclude = _exclude
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
-	return hit.is_empty() or hit.collider == player
+	return hit.is_empty() or hit.collider == target
 
 
-func _player_noise() -> float:
-	var noise := 0.1 + 0.9 * clampf(player.velocity.length() / 30.0, 0.0, 1.0)
-	var odm := player.get_node_or_null("ODMController")
+func _target_noise() -> float:
+	var noise := 0.1 + 0.9 * clampf(target.velocity.length() / 30.0, 0.0, 1.0)
+	var odm := target.get_node_or_null("ODMController")
 	if odm != null and odm.has_method("is_hooked") and odm.is_hooked():
 		noise = maxf(noise, 0.8)
 	return noise
@@ -263,8 +315,8 @@ func _set_state(new_state: State) -> void:
 	if new_state == State.ATTACK:
 		_attack_time = 0.0
 		_attack_landed = false
-		_pending_grab = _grab_cooldown_left <= 0.0 and player.get(&"grabbed") != true \
-				and randf() < grab_chance
+		_pending_grab = target == player and _grab_cooldown_left <= 0.0 \
+				and player.get(&"grabbed") != true and randf() < grab_chance
 		animation_player.play(&"titan/Attack", 0.3)
 		animation_player.speed_scale = attack_speed
 
@@ -320,7 +372,7 @@ func _state_chase(delta: float) -> void:
 		_home = global_position
 		_set_state(State.WANDER)
 		return
-	var to_player := player.global_position - global_position
+	var to_player := target.global_position - global_position
 	var flat_dist := Vector2(to_player.x, to_player.z).length()
 	if awareness >= 0.5 and _cooldown_left <= 0.0 and flat_dist <= attack_range \
 			and absf(to_player.y) < 14.0:
@@ -337,7 +389,7 @@ func _state_attack(delta: float) -> void:
 	_stop(delta)
 	var fraction := _attack_time / _attack_length
 	if fraction < hit_start_fraction:
-		_turn_toward(_flat_dir(player.global_position - global_position), delta * 0.5)
+		_turn_toward(_flat_dir(target.global_position - global_position), delta * 0.5)
 	_attack_time += delta * attack_speed
 	fraction = _attack_time / _attack_length
 	if not _attack_landed and fraction >= hit_start_fraction and fraction <= hit_end_fraction:
@@ -357,16 +409,17 @@ func _try_land_hit() -> void:
 	if _pending_grab:
 		_begin_grab(bone)
 		return
-	var away := _flat_dir(player.global_position - global_position)
-	player.velocity += away * knockback + Vector3.UP * knockback_up
-	if player.has_method(&"take_damage"):
-		player.take_damage(attack_damage, self)
-	hit_player.emit(player, attack_damage)
+	var away := _flat_dir(target.global_position - global_position)
+	target.velocity += away * knockback + Vector3.UP * knockback_up
+	if target.has_method(&"take_damage"):
+		target.take_damage(attack_damage, self)
+	if target == player:
+		hit_player.emit(player, attack_damage)
 
 
 ## Returns the first hand bone within reach of the player, or -1.
 func _hand_in_reach() -> int:
-	var center := player.global_position + Vector3.UP * 0.9
+	var center := target.global_position + Vector3.UP * 0.9
 	var xform := skeleton.global_transform
 	for bone in _hand_bones:
 		var hand := xform * skeleton.get_bone_global_pose(bone).origin
@@ -506,13 +559,24 @@ func _update_segments() -> void:
 # --- Damage ---
 
 ## Called by SwordCombat for any node the blade overlaps.
-func on_sword_hit(target: Node3D, damage: float) -> void:
+func on_sword_hit(target: Node3D, _damage: float, attacker_pos: Vector3 = Vector3.INF) -> void:
 	if state == State.DEAD:
 		return
-	if target == nape:
+	if target == nape and _attacker_behind(attacker_pos):
 		_die()
 	else:
 		_flash_deflect()
+
+
+## True when the attacker stands within nape_rear_angle_deg of the titan's back.
+func _attacker_behind(attacker_pos: Vector3) -> bool:
+	if not attacker_pos.is_finite():
+		return true
+	var to_attacker := _flat_dir(attacker_pos - global_position)
+	var back := _flat_dir(-global_basis.z)
+	if to_attacker == Vector3.ZERO:
+		return true
+	return back.dot(to_attacker) >= cos(deg_to_rad(nape_rear_angle_deg))
 
 
 ## Called by the held player's sword swings; always damages the gripping hand.

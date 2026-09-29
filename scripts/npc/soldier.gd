@@ -41,6 +41,12 @@ signal died(soldier: Soldier)
 ## Longest time a traversal hook is held.
 @export var traverse_max_hold: float = 3.0
 
+@export_group("Gas")
+## Head for a gas station at or below this fraction of full gas.
+@export_range(0.0, 1.0) var low_gas_fraction: float = 0.25
+## Return to fighting once gas is back above this fraction.
+@export_range(0.0, 1.0) var resume_gas_fraction: float = 0.9
+
 @export_group("Tactics")
 ## Seconds spent in position before the first hook is fired.
 @export var reaction_time: float = 1.5
@@ -80,6 +86,8 @@ var _retarget_timer: float = 0.0
 var _hit_timer: float = -1.0
 var _aim_attempt: int = 0
 var _check_pending: bool = false
+var _refueling: bool = false
+var _refuel_goal: Vector3 = Vector3.ZERO
 var _traversing: bool = false
 var _trav_time: float = 0.0
 var _trav_fired: bool = false
@@ -137,8 +145,11 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 
+	_update_gas_state()
 	var walk_dir := Vector3.ZERO
-	if _target_valid():
+	if _refueling:
+		walk_dir = _refuel_think(delta)
+	elif _target_valid():
 		var nape := target.nape.global_position
 		_think(nape, delta)
 		walk_dir = _ground_direction()
@@ -238,6 +249,57 @@ func _think(nape: Vector3, delta: float) -> void:
 		_fire_at(nape, _aim_attempt)
 
 
+## Switches into refuel mode when gas runs low, and back out once topped up.
+func _update_gas_state() -> void:
+	var fraction := odm.get_gas() / maxf(odm.get_gas_max(), 1.0)
+	if not _refueling:
+		if fraction <= low_gas_fraction and _nearest_station() != null:
+			_refueling = true
+			odm.release_hooks()
+			_traversing = false
+			_check_pending = false
+			_hit_timer = -1.0
+			_reaction_left = -1.0
+	elif fraction >= resume_gas_fraction:
+		_refueling = false
+
+
+func _nearest_station() -> Node3D:
+	var best: Node3D
+	var best_dist := INF
+	for node in get_tree().get_nodes_in_group("gas_station"):
+		var station := node as Node3D
+		if station == null:
+			continue
+		var d := global_position.distance_squared_to(station.global_position)
+		if d < best_dist:
+			best_dist = d
+			best = station
+	return best
+
+
+## Heads for the nearest gas station, hooking toward it when far, and waits there.
+func _refuel_think(delta: float) -> Vector3:
+	var station := _nearest_station()
+	if station == null:
+		_refueling = false
+		return Vector3.ZERO
+	_refuel_goal = station.global_position
+	var flat := _refuel_goal - global_position
+	flat.y = 0.0
+	odm.ai_steer = flat
+	if flat.length() < 2.0:
+		if odm.is_hooked():
+			odm.release_hooks()
+		_traversing = false
+		return Vector3.ZERO
+	if _traversing:
+		_update_traversal(delta)
+	elif odm.get_gas() > 0.0:
+		_try_traverse()
+	return _ground_direction()
+
+
 ## Starts a hook-and-reel hop toward the goal when it is far away.
 func _try_traverse() -> void:
 	if not use_traversal or _hook_timer > 0.0:
@@ -276,7 +338,7 @@ func _update_traversal(delta: float) -> void:
 		return
 	var done := not odm.is_hooked() or _trav_time >= traverse_max_hold \
 			or _eye().distance_to(odm.get_anchor()) <= traverse_release_distance \
-			or flat.length() <= traverse_distance
+			or flat.length() <= traverse_distance or odm.get_gas() <= 0.0
 	if done:
 		odm.release_hooks()
 		_traversing = false
@@ -322,6 +384,8 @@ func _find_anchor(goal: Vector3) -> Vector3:
 
 ## Where the soldier is trying to get to on the ground plane.
 func _goal_point() -> Vector3:
+	if _refueling:
+		return _refuel_goal
 	var goal := target.global_position
 	if _reflank_left > 0.0:
 		var away := global_position - goal
@@ -421,7 +485,7 @@ func _update_strike(delta: float) -> void:
 ## Horizontal direction toward the titan, following the navmesh when it exists.
 func _ground_direction() -> Vector3:
 	var goal := _goal_point()
-	var retreating := _reflank_left > 0.0
+	var retreating := _reflank_left > 0.0 or _refueling
 	var to_goal := goal - global_position
 	to_goal.y = 0.0
 	if not retreating and _behind_titan() and to_goal.length() < min_ground_distance:

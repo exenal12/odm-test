@@ -22,6 +22,8 @@ extends Node3D
 @export_range(10.0, 180.0) var rear_angle_deg: float = 70.0
 ## Soldiers hook onto scenery to travel, like the player.
 @export var use_traversal: bool = true
+## Soldiers head for a gas station at or below this fraction of full gas.
+@export_range(0.0, 1.0) var low_gas_fraction: float = 0.25
 ## Seconds a soldier waits in position before the first hook.
 @export var reaction_time: float = 1.5
 ## Soldiers only strike while the titan is focused on something else.
@@ -68,6 +70,7 @@ func _apply_soldier(soldier: Soldier) -> void:
 	soldier.run_speed = run_speed
 	soldier.rear_angle_deg = rear_angle_deg
 	soldier.use_traversal = use_traversal
+	soldier.low_gas_fraction = low_gas_fraction
 	soldier.reaction_time = reaction_time
 	soldier.require_distraction = require_distraction
 	soldier.max_attackers = max_attackers

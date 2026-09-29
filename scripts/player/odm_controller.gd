@@ -51,6 +51,18 @@ signal reel_mode_changed(enabled: bool)
 @export var gas_boost_drain: float = 28.0 ## per second while boosting
 ## Gas consumed per second while reeling.
 @export var gas_reel_drain: float = 4.0 ## per second while reeling
+## Steering while hooked or airborne stops adding speed above this (m/s, horizontal).
+@export var swing_steer_max_speed: float = 12.0
+## Extra horizontal drag while swinging, scaled by speed relative to the steer cap.
+@export var swing_drag: float = 0.4
+## Additional drag while swinging with feet on the ground, so running on a hook stalls.
+@export var swing_ground_drag: float = 3.0
+## Reel speed cap while skimming the ground toward a shallow anchor.
+@export var ground_reel_speed_cap: float = 6.0
+## Anchor direction (vertical component, 0-1) below which a grounded reel is capped.
+@export_range(0.0, 1.0, 0.01) var ground_reel_min_slope: float = 0.3
+## Fraction of normal reel speed left when the tank is empty. Keep it low so running dry hurts.
+@export_range(0.0, 1.0, 0.01) var empty_gas_reel_multiplier: float = 0.12
 ## Height above the player used when aiming without a camera.
 @export var look_aim_height: float = 1.2
 ## Physics layer bit for grappleable surfaces (layer 2).
@@ -283,6 +295,9 @@ func _try_fire(hook: ODMHook) -> bool:
 	if ok and hook.cable_length > max_cable_length:
 		hook.detach()
 		return false
+	if ok:
+		# Measure from the body the constraint uses, not the camera the ray came from.
+		hook.cable_length = hook.anchor_point.distance_to(_player.global_position + Vector3.UP * 0.9)
 	return ok
 
 
@@ -352,12 +367,16 @@ func _apply_cable_constraints(delta: float) -> void:
 			return
 		var direction := to_target / distance
 		var base_speed := _effective_reel_speed()
-		var carried := _player.velocity.length() - base_speed
+		if gas <= 0.0:
+			_reel_boost_bonus = 0.0
+		var carried := _player.velocity.length() - base_speed if gas > 0.0 else 0.0
 		_reel_boost_bonus = maxf(_reel_boost_bonus, carried)
 		_reel_boost_bonus = clampf(_reel_boost_bonus, 0.0, maxf(0.0, max_grapple_speed - base_speed))
 		_reel_boost_bonus = move_toward(_reel_boost_bonus, 0.0, reel_boost_decay * delta)
 		var speed := minf(base_speed + _reel_boost_bonus,
 			maxf(0.0, distance - min_cable_length) * 7.0)
+		if direction.y < ground_reel_min_slope and _near_ground():
+			speed = minf(speed, ground_reel_speed_cap)
 		if left_attached() and right_attached():
 			_player.velocity = direction * speed
 		else:
@@ -368,6 +387,13 @@ func _apply_cable_constraints(delta: float) -> void:
 			var radial_speed := sqrt(maxf(0.0, speed * speed - tangent.length_squared()))
 			_player.velocity = direction * radial_speed + tangent
 		return
+
+	# Ratchet: the rope never gets longer than the closest approach so far.
+	var body_pos := _player.global_position + Vector3.UP * 0.9
+	for hook in [_left_hook, _right_hook]:
+		if hook.is_attached():
+			hook.cable_length = maxf(min_cable_length,
+				minf(hook.cable_length, hook.anchor_point.distance_to(body_pos)))
 
 	var anchors: Array[Vector3] = []
 	var lengths: Array[float] = []
@@ -397,9 +423,32 @@ func _apply_cable_constraints(delta: float) -> void:
 		_player.global_position += dir * excess * minf(1.0, 12.0 * delta)
 
 	var horizontal := Vector3(_player.velocity.x, 0.0, _player.velocity.z)
-	horizontal = horizontal.lerp(Vector3.ZERO, swing_damping * delta)
+	var rate := swing_damping + swing_drag * horizontal.length() / maxf(swing_steer_max_speed, 0.1)
+	if _near_ground():
+		rate += swing_ground_drag
+	horizontal = horizontal.lerp(Vector3.ZERO, clampf(rate * delta, 0.0, 1.0))
 	_player.velocity.x = horizontal.x
 	_player.velocity.z = horizontal.z
+
+
+## True when the ground is within a short distance below the feet.
+func _near_ground() -> bool:
+	var from := _player.global_position + Vector3.UP * 0.1
+	var query := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 0.6)
+	query.collision_mask = 1
+	query.exclude = [_player.get_rid()]
+	return not _player.get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+## Adds horizontal steering acceleration without pushing speed past the swing cap.
+func _steer(wish: Vector3, delta: float) -> void:
+	var horizontal := Vector3(_player.velocity.x, 0.0, _player.velocity.z)
+	var updated := horizontal + wish * air_control * delta
+	var limit := maxf(swing_steer_max_speed, horizontal.length())
+	if updated.length() > limit:
+		updated = updated.normalized() * limit
+	_player.velocity.x = updated.x
+	_player.velocity.z = updated.z
 
 
 ## Applies camera-relative air steering while hooked, boosting, or airborne.
@@ -411,7 +460,7 @@ func _apply_air_steer(delta: float) -> void:
 	if not is_active():
 		return
 	if ai_controlled:
-		_player.velocity += ai_steer.normalized() * air_control * delta
+		_steer(ai_steer.normalized(), delta)
 		return
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	if input_dir == Vector2.ZERO or _camera == null:
@@ -424,7 +473,7 @@ func _apply_air_steer(delta: float) -> void:
 	right.y = 0.0
 	right = right.normalized()
 	var wish := (forward * -input_dir.y + right * input_dir.x).normalized()
-	_player.velocity += wish * air_control * delta
+	_steer(wish, delta)
 
 
 ## Applies directional boost while gas and the airborne/hooked requirements
@@ -465,7 +514,8 @@ func _apply_boost(delta: float) -> void:
 ## Returns the reel speed used by movement and cable shortening.
 func _effective_reel_speed() -> float:
 	var multiplier := dual_reel_speed_multiplier if left_attached() and right_attached() else 1.0
-	return maxf(reel_speed, 0.0) * maxf(multiplier, 0.0)
+	var speed := maxf(reel_speed, 0.0) * maxf(multiplier, 0.0)
+	return speed * empty_gas_reel_multiplier if gas <= 0.0 else speed
 
 
 ## Returns the current single anchor or midpoint between two anchors.

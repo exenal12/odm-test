@@ -24,8 +24,10 @@ const GAS_NORMAL := Color(0.82, 0.86, 0.84)
 const GAS_LOW := Color(0.95, 0.65, 0.2)
 const GAS_EMPTY := Color(0.85, 0.15, 0.1)
 
+@onready var kill_count: Label = %KillCount
 @onready var health_ghost: ProgressBar = %HealthGhost
 
+var _kills: int = 0
 var _odm: ODMController
 var _health: PlayerHealth
 var _low_health_alpha: float = 0.0
@@ -40,6 +42,26 @@ func _ready() -> void:
 	_gas_fill = gas_bar.get_theme_stylebox("fill").duplicate()
 	gas_bar.add_theme_stylebox_override("fill", _gas_fill)
 	escape_panel.visibility_changed.connect(_on_escape_visibility)
+	get_tree().node_added.connect(_track_titan)
+	call_deferred("_track_existing_titans")
+
+
+func _track_existing_titans() -> void:
+	for node in get_tree().root.find_children("*", "Titan", true, false):
+		_track_titan(node)
+
+
+func _track_titan(node: Node) -> void:
+	if node is Titan and not node.died.is_connected(_on_titan_died):
+		node.died.connect(_on_titan_died)
+
+
+func _on_titan_died(_titan: Titan) -> void:
+	_kills += 1
+	kill_count.text = str(_kills)
+	kill_count.pivot_offset = Vector2(kill_count.size.x, kill_count.size.y * 0.5)
+	kill_count.scale = Vector2.ONE * 1.5
+	create_tween().tween_property(kill_count, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
 
 
 func _process(_delta: float) -> void:

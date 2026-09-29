@@ -588,3 +588,71 @@ Two behaviors to watch for:
 - With `require_distraction` on and nothing else to distract the titan, soldiers mostly die instead of striking. That's the intended pressure, but you may want to lower the titan's aggression if it feels unwinnable for them.
 
 The only modification shown is soldier.tscn, likely just Godot resaving with UIDs added during headless processing—nothing else changed. I'll wrap up here.
+
+## User
+
+the soldiers should also be able to grapple onto anything the player can, and use it for traversal
+
+## Assistant
+
+I need to design a swing traversal system beyond just hooking titans—soldiers should fire ODM hooks at anchor points on world geometry like trees and buildings, reeling and releasing in sequence to move toward a goal when ground movement isn't feasible or is too slow.
+
+I'm working out anchor selection: casting a fan of upward-pitched rays toward the goal direction within hook range, scoring hits by how much progress they make toward the target and how elevated they are, while excluding titan colliders even though they share the same grapple layer so I don't accidentally hook a titan mid-traverse.
+
+Once an anchor is chosen, both hooks fire and reel the soldier straight toward it at high speed, releasing when close or after a timeout so momentum carries them, then chaining to the next anchor after a brief cooldown until they're near the goal or run out of gas. I need a `_traversing` flag to separate traversal hooks from combat hooks so the `_think` state machine routes correctly and skips the normal attack-hook pending checks while a traversal chain is active.
+
+I need to prioritize attack hooking when the titan is behind and in range, otherwise fall into traversal mode if a shared `_goal_point()` helper (reused from the ground-movement goal logic covering titan position, flanking, and retreat) reports a distance beyond the traversal threshold—so retreat goals that are already close just walk instead of grappling. I also want traversal anchors to work on any grappleable surface, not just titans, mirroring what the player can hook onto.
+
+Since the soldier reuses the same ODM controller exports as the player, the grapple collision mask and max cable length stay consistent. For releasing a traversal hook, I'm setting conditions on proximity to the anchor, elapsed hold time, and steering flat toward the goal direction. Now I'm writing the anchor search function, which raycasts outward from the eye position across a spread of yaw and pitch angles toward the goal to find a valid grapple point.
+
+Working out the pitch rotation math and raycast parameters, filtering out hits that belong to a Titan's collision hierarchy...
+
+Score is progress toward the goal minus a height penalty, requiring at least 6 meters of gained distance and a target point above the current position, then picking the best-scoring candidate among the fired rays. When firing, I'm setting the aim on the ODM and requesting the fire action while marking traversal state as active, with a fallback that resets and starts a retry timer if the hook doesn't connect.
+
+I want to detect failure quickly by checking a short elapsed traversal time against a hooked flag, using a per-frame fired marker to avoid double-checks. Once hooked, I use the ODM's own anchor position (rather than the raw raycast hit) for distance calculations since both should coincide within the same physics tick before movement occurs.
+
+For release, I call the hook release function, clear the traversal flag, and start a short cooldown timer, which still allows firing a new grapple mid-air if the goal remains far and traversal is otherwise permitted.
+
+Now I'm working through how grounded starts differ from landings, how normal ground movement and facing direction interact with the traversal state versus airborne unhooked states, and how the ordering in the think function needs `_traversing` checked early so traversal hooks don't get misrouted into the attack-strike logic meant for combat hooks. I also notice a bug where the "is hooked" check used for counting attackers would mistakenly include soldiers who are just traversing, so I need to exclude those from that count.
+
+I'm refining that fix by requiring the "not traversing" condition on the attacking check, then handling the case where a traversing soldier suddenly satisfies attack conditions mid-flight — releasing the traversal hooks and falling through into the normal attack branch. I'm also defining the export variables that control traversal behavior, like distance thresholds, release distance, max hold time, and minimum progress needed.
+
+I'm also reworking the ground-direction logic so it derives the goal point through a helper that accounts for retreating when flanked and switching to a flank point when not behind the titan, then reasoning through edge cases like a soldier falling near the titan after a miss and needing to traverse away using valid anchor points within hook range. I want to make sure the traversal ranking and hooking progress requirements still hold up in these scenarios before I go edit the actual _think function.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "offset": 168, "limit": 60}
+
+I need to move the reflank timer update to the top of the think function so it ticks even during traversal, since the traversal branch returns early and bypasses it. I'll also set the AI steering direction toward the goal while traversing.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tvar dist := _eye().distance_to(nape)\n\tvar hooked := odm.is_hooked()\n\n\tif _check_pending:", "new_string": "\tvar dist := _eye().distance_to(nape)\n\tvar hooked := odm.is_hooked()\n\t_update_reflank(delta)\n\n\tif _travers...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\t_update_reflank(delta)\n\tvar can_hook := behind and dist <= hook_range and _reflank_left <= 0.0 and _slot_free()\n\tif not can_hook:\n\t\t_reaction_left = -1.0\n\t\treturn", "new_string": "\tvar can_hook := behind and dist <...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\t\tif other != null and other != self and other.alive and other.target == target \\\n\t\t\t\tand other.odm.is_hooked():", "new_string": "\t\tif other != null and other != self and other.alive and other.target == target \\\n\t\...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "## Clears the re-flank state once", "new_string": "## Starts a hook-and-reel hop toward the goal when it is far away.\nfunc _try_traverse() -> void:\n\tif not use_traversal or _hook_timer > 0.0:\n\t\treturn\n\tvar goal := _goal...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "\tvar goal := target.global_position\n\tvar retreating := _reflank_left > 0.0\n\tif retreating:\n\t\tvar away := global_position - goal\n\t\taway.y = 0.0\n\t\tgoal += (away.normalized() if away.length_squared() > 0.01 else Vect...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "var _reaction_left: float = -1.0", "new_string": "var _traversing: bool = false\nvar _trav_time: float = 0.0\nvar _trav_fired: bool = false\nvar _reaction_left: float = -1.0"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "old_string": "@export_group(\"Tactics\")", "new_string": "@export_group(\"Traversal\")\n## Hook onto scenery and reel to get around, like the player does.\n@export var use_traversal: bool = true\n## Walk instead of hooking once the goal is t...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "## Seconds a soldier waits in position", "new_string": "## Soldiers hook onto scenery to travel, like the player.\n@export var use_traversal: bool = true\n## Seconds a soldier waits in position"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/npc/soldier_director.gd", "old_string": "\tsoldier.reaction_time = reaction_time", "new_string": "\tsoldier.use_traversal = use_traversal\n\tsoldier.reaction_time = reaction_time"}
+
+I'm checking edge cases: releasing hooks after a miss or death should correctly clear traversal state, and I need to verify that casting hit.collider to Node works properly since it's typed as a generic Object.
+
+To validate range-based traversal behavior, I'm thinking I should manually reposition soldiers far from the titan after a short delay and log their hook/position state every half second to confirm the hooking logic responds correctly at distance.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/tools/tmp_soldier_check.gd", "contents": "extends SceneTree\n\nfunc _initialize() -> void:\n\tvar world := (load(\"res://scenes/world/forest_world.tscn\") as PackedScene).instantiate()\n\tworld.get_node(\"SoldierDirector\").soldier_count = 1\n\troot.add_child(world)\...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && timeout 110 godot --headless --script res://tools/tmp_soldier_check.gd 2>&1 | grep -v \"user://\\|rotate_file\\|copy (core\" | head -50", "block_until_ms": 120000}
+
+The traversal looks good - the hook swings covered the distance with some lateral wander but overall progress toward the flank point near the titan, which seems fine. Now I'll clean up the temp files.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -f tools/tmp_soldier_check.gd tools/tmp_soldier_check.gd.uid && git status --short | grep -v prompts"}
+
+Soldiers now hook onto scenery and reel to get around, using the same `ODMController` as the player. I tested it headless. A soldier placed about 80 m from the titan crossed most of that distance in three hook hops and then walked the rest. I haven't watched it in the editor.
+
+**How it works**
+- **When it hops:** if a soldier's goal (the titan, a flank point, or a retreat spot) is more than `traverse_distance` (20 m) away, it hooks instead of walking. It works from the ground or in mid-air, and re-hooks straight after letting go.
+- **Picking an anchor:** it casts a fan of rays up and toward its goal, out to `traverse_range` (35 m). It only accepts a hit at least `traverse_min_progress` (6 m) closer to the goal and at least 2 m above its own position. Of the ones that qualify, it picks the one with the most progress.
+- **Same rules as the player:** the rays use the player's grapple layer and cable length. Titan bodies are skipped, so soldiers don't hook them by accident while travelling.
+- **Reeling and letting go:** it fires both hooks and reels, then lets go within `traverse_release_distance` (5 m) of the anchor or after `traverse_max_hold` (3 s), then picks the next one.
+- **Switching to attack mode:** if a soldier is hooked for travel and gets into attack position (behind the titan, within `hook_range`), it drops the traversal hook and goes into the normal hook-and-strike routine.
+- **Attacker cap:** soldiers hooked for travel don't count toward `max_attackers`.
+
+**Settings:** the exports are on `Soldier` under "Traversal". `use_traversal` is also on `SoldierDirector`, to switch it off for every soldier.
+
+**What I saw and what's missing**
+- **Lateral drift:** in the test the soldier wandered sideways between hops. The flank point circles the titan, so its path isn't a straight line.
+- **Ordinary walking:** it uses the navmesh, which is titan-sized. If that routes badly around trees, the hooks now make up for it. Hopping is somewhat faster than walking, so soldiers may reach titans sooner. If they feel too fast, raise `traverse_distance` or lower `run_speed` and the reel speeds.
+- **Missing:** there is no gas management (the soldier's reel drain is 0, as before), and it doesn't avoid other soldiers' cables or bump into them.

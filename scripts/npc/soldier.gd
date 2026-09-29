@@ -27,6 +27,20 @@ signal died(soldier: Soldier)
 ## Minimum distance kept from the titan while circling around to its back.
 @export var flank_radius: float = 30.0
 
+@export_group("Traversal")
+## Hook onto scenery and reel to get around, like the player does.
+@export var use_traversal: bool = true
+## Walk instead of hooking once the goal is this close.
+@export var traverse_distance: float = 20.0
+## How far ahead anchors are searched; keep below the ODM cable length.
+@export var traverse_range: float = 35.0
+## Minimum distance an anchor must bring the soldier toward its goal.
+@export var traverse_min_progress: float = 6.0
+## Let go of a traversal hook this close to its anchor.
+@export var traverse_release_distance: float = 5.0
+## Longest time a traversal hook is held.
+@export var traverse_max_hold: float = 3.0
+
 @export_group("Tactics")
 ## Seconds spent in position before the first hook is fired.
 @export var reaction_time: float = 1.5
@@ -66,6 +80,9 @@ var _retarget_timer: float = 0.0
 var _hit_timer: float = -1.0
 var _aim_attempt: int = 0
 var _check_pending: bool = false
+var _traversing: bool = false
+var _trav_time: float = 0.0
+var _trav_fired: bool = false
 var _reaction_left: float = -1.0
 var _reflank_left: float = 0.0
 
@@ -171,6 +188,17 @@ func _eye() -> Vector3:
 func _think(nape: Vector3, delta: float) -> void:
 	var dist := _eye().distance_to(nape)
 	var hooked := odm.is_hooked()
+	_update_reflank(delta)
+
+	if _traversing:
+		var can_attack := _behind_titan() and dist <= hook_range and _reflank_left <= 0.0
+		if can_attack:
+			odm.release_hooks()
+			_traversing = false
+			hooked = false
+		else:
+			_update_traversal(delta)
+			return
 
 	if _check_pending:
 		_check_pending = false
@@ -198,16 +226,110 @@ func _think(nape: Vector3, delta: float) -> void:
 			_fire_at(nape, 0)
 		return
 
-	_update_reflank(delta)
 	var can_hook := behind and dist <= hook_range and _reflank_left <= 0.0 and _slot_free()
 	if not can_hook:
 		_reaction_left = -1.0
+		_try_traverse()
 		return
 	if _reaction_left < 0.0:
 		_reaction_left = reaction_time
 	_reaction_left -= delta
 	if _reaction_left <= 0.0 and _hook_timer <= 0.0:
 		_fire_at(nape, _aim_attempt)
+
+
+## Starts a hook-and-reel hop toward the goal when it is far away.
+func _try_traverse() -> void:
+	if not use_traversal or _hook_timer > 0.0:
+		return
+	var goal := _goal_point()
+	var flat := goal - global_position
+	flat.y = 0.0
+	if flat.length() <= traverse_distance:
+		return
+	var anchor := _find_anchor(goal)
+	if not anchor.is_finite():
+		_hook_timer = hook_retry
+		return
+	var origin := _eye()
+	odm.set_aim(origin, anchor - origin)
+	odm.request_fire(true)
+	odm.request_fire(false)
+	_traversing = true
+	_trav_time = 0.0
+	_trav_fired = true
+	_hook_timer = hook_retry
+
+
+## Follows a traversal hook and lets go once close to the anchor or held too long.
+func _update_traversal(delta: float) -> void:
+	_trav_time += delta
+	var goal := _goal_point()
+	var flat := goal - global_position
+	flat.y = 0.0
+	odm.ai_steer = flat
+	if _trav_fired:
+		_trav_fired = false
+		if not odm.is_hooked():
+			_traversing = false
+			_hook_timer = hook_retry
+		return
+	var done := not odm.is_hooked() or _trav_time >= traverse_max_hold \
+			or _eye().distance_to(odm.get_anchor()) <= traverse_release_distance \
+			or flat.length() <= traverse_distance
+	if done:
+		odm.release_hooks()
+		_traversing = false
+		_hook_timer = 0.1
+
+
+## Fans rays up and toward the goal; returns the grapple point making the most progress.
+func _find_anchor(goal: Vector3) -> Vector3:
+	var origin := _eye()
+	var base := goal - origin
+	base.y = 0.0
+	if base.length_squared() < 0.01:
+		return Vector3.INF
+	base = base.normalized()
+	var current_gap := Vector2(goal.x - origin.x, goal.z - origin.z).length()
+	var space := get_world_3d().direct_space_state
+	var best := Vector3.INF
+	var best_progress := traverse_min_progress
+	for yaw in [-0.6, -0.3, 0.0, 0.3, 0.6]:
+		var flat_dir := base.rotated(Vector3.UP, yaw)
+		var pitch_axis := flat_dir.cross(Vector3.UP).normalized()
+		for pitch in [0.25, 0.55, 0.9]:
+			var dir := flat_dir.rotated(pitch_axis, pitch)
+			var query := PhysicsRayQueryParameters3D.create(origin, origin + dir * traverse_range)
+			query.collision_mask = odm.grapple_collision_mask
+			query.exclude = [get_rid()]
+			var hit := space.intersect_ray(query)
+			if hit.is_empty():
+				continue
+			var collider := hit.collider as Node
+			if collider != null and collider.get_parent() is Titan:
+				continue
+			var point: Vector3 = hit.position
+			if point.y < global_position.y + 2.0:
+				continue
+			var gap := Vector2(goal.x - point.x, goal.z - point.z).length()
+			var progress := current_gap - gap
+			if progress > best_progress:
+				best_progress = progress
+				best = point
+	return best
+
+
+## Where the soldier is trying to get to on the ground plane.
+func _goal_point() -> Vector3:
+	var goal := target.global_position
+	if _reflank_left > 0.0:
+		var away := global_position - goal
+		away.y = 0.0
+		goal += (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * flank_radius
+	elif not _behind_titan():
+		goal = _flank_point()
+	return goal
 
 
 ## Clears the re-flank state once the soldier has backed off far enough.
@@ -229,7 +351,7 @@ func _slot_free() -> bool:
 	for node in get_tree().get_nodes_in_group("soldier"):
 		var other := node as Soldier
 		if other != null and other != self and other.alive and other.target == target \
-				and other.odm.is_hooked():
+				and other.odm.is_hooked() and not other._traversing:
 			count += 1
 	return count < max_attackers
 
@@ -298,14 +420,8 @@ func _update_strike(delta: float) -> void:
 
 ## Horizontal direction toward the titan, following the navmesh when it exists.
 func _ground_direction() -> Vector3:
-	var goal := target.global_position
+	var goal := _goal_point()
 	var retreating := _reflank_left > 0.0
-	if retreating:
-		var away := global_position - goal
-		away.y = 0.0
-		goal += (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * flank_radius
-	elif not _behind_titan():
-		goal = _flank_point()
 	var to_goal := goal - global_position
 	to_goal.y = 0.0
 	if not retreating and _behind_titan() and to_goal.length() < min_ground_distance:

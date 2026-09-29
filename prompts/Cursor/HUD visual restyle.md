@@ -215,3 +215,34 @@ I restyled the hook indicators and the reticle to match the gritty theme. The HU
 - I refreshed the chat transcript.
 
 The reticle turns red for any surface on the grapple collision mask, so it will also react to titans if they are on that mask.
+
+## User
+
+there should also be a kill counter somewhere for the player to know how many titans they've killed, perhaps in the top right corner
+
+## Assistant
+
+- Tool call: `Grep` {"pattern": "signal |func die|func _die|queue_free|add_to_group|died", "path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "output_mode": "content", "-n": true}
+- Tool call: `Grep` {"pattern": "titan_killed|Kill|kills", "path": "/home/bazzite/odm-test", "glob": "*.gd", "output_mode": "files_with_matches"}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 595, "limit": 25}
+- Tool call: `Grep` {"pattern": "kill", "path": "/home/bazzite/odm-test/scripts/npc/soldier.gd", "-i": true, "output_mode": "content", "-n": true}
+- Tool call: `Grep` {"pattern": "\\.died\\.connect|died\\.connect|titan_scene|Titan\\b.*instantiate", "path": "/home/bazzite/odm-test", "glob": "*.gd", "output_mode": "content", "-n": true}
+
+I'm figuring out how titans get detected by the HUD since they aren't added to a dedicated group—only "grappleable" showed up in the grep. I'll instead hook into node_added to catch Titan instances as they spawn, plus manually connect any titans that already exist when the HUD is ready.
+
+I'll count all titan deaths regardless of who kills them for simplicity, since there's no clean attribution mechanism. For the UI, I'm planning a top-right PanelContainer with a "TITANS SLAIN" label and a large count that pops with a tween on each increment.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\npanel='''[node name=\"KillPanel\" type=\"PanelContainer\" parent=\"Root\"]\nlayout_mode = 1\nanchors_preset = 1\nanchor_left = 1.0\nanchor_right = 1.0\noffset_left = -200.0\noffset_top = 24.0...
+
+That error only comes up in my test setup since there's no current scene there, but I should make the code resilient regardless by referencing get_tree().root instead.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/ui/odm_hud.gd", "old_string": "get_tree().current_scene.find_children", "new_string": "get_tree().root.find_children"}
+
+I added a kill counter to the top right of the HUD. It's headless-checked only, and I haven't seen it in the game.
+
+- **Panel:** it uses the same dark panel style as the rest of the HUD. A small "TITANS SLAIN" label sits above a large red number, right-aligned. The panel is in `scenes/ui/odm_hud.tscn`.
+- **Counting:** the HUD in `scripts/ui/odm_hud.gd` watches every titan, including ones that spawn later, and adds one to the count when a titan dies.
+- **Feedback:** the number pops larger and settles back each time it goes up.
+
+In a headless test, calling the kill handler once moved the counter to 1. `forest_world.tscn` still loads with no errors. I didn't get an actual titan kill in that check, so the link from a real death to the counter is untested. The counter resets when the scene restarts after you die.
+
+The counter counts every titan death, including ones your allied soldiers kill. Nothing records who landed the final blow. If you want it to count only your kills, `Titan` would need to record its killer. `on_sword_hit` doesn't receive the attacker node, so that means passing it through. Do you want me to add that?

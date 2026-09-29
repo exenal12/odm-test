@@ -3,8 +3,12 @@ extends Node3D
 
 const WORLD_LAYER := 1
 const GRAPPLE_LAYER := 2
-const FOREST_HALF_SIZE := 95.0
+const BASE_FOREST_HALF_SIZE := 95.0
+const MAP_SCALE := 1.5
+const FOREST_HALF_SIZE := BASE_FOREST_HALF_SIZE * MAP_SCALE
 const VISUAL_FLOOR_MARGIN := 5.0
+const TREE_SPACING := 20.0
+const BASE_TREE_COUNT := 76
 
 var _rng := RandomNumberGenerator.new()
 var _bark_material: StandardMaterial3D
@@ -68,19 +72,47 @@ func _build_trees() -> void:
 	grove.name = "GiantTrees"
 	grove.add_to_group("nav_geometry")
 	add_child(grove)
-	for gx in range(-4, 5):
-		for gz in range(-4, 5):
-			var x := float(gx) * 20.0 + _rng.randf_range(-5.0, 5.0)
-			var z := float(gz) * 20.0 + _rng.randf_range(-5.0, 5.0)
+	var grid_radius := floori((FOREST_HALF_SIZE - 15.0) / TREE_SPACING)
+	for gx in range(-grid_radius, grid_radius + 1):
+		for gz in range(-grid_radius, grid_radius + 1):
+			var x := float(gx) * TREE_SPACING + _rng.randf_range(-5.0, 5.0)
+			var z := float(gz) * TREE_SPACING + _rng.randf_range(-5.0, 5.0)
 			# Leave a clear landing zone and a loose northbound flying lane.
 			if Vector2(x, z).length() < 12.0 or (absf(x) < 5.0 and z < -10.0):
 				continue
 			var tree := Node3D.new()
-			tree.name = "GiantTree_%d_%d" % [gx + 4, gz + 4]
+			tree.name = "GiantTree_%d_%d" % [gx + grid_radius, gz + grid_radius]
 			tree.position = Vector3(x, 0.0, z)
 			grove.add_child(tree)
 			_build_tree(tree)
+	_fill_outer_grove(grove, roundi(float(BASE_TREE_COUNT) * MAP_SCALE * MAP_SCALE), grid_radius)
 
+
+## Fills gaps around the new perimeter so trees per square meter stay steady.
+func _fill_outer_grove(grove: Node3D, target_count: int, grid_radius: int) -> void:
+	var limit := FOREST_HALF_SIZE - 8.0
+	var outer_band := float(grid_radius) * TREE_SPACING - 8.0
+	var attempts := 0
+	while grove.get_child_count() < target_count and attempts < 2000:
+		attempts += 1
+		var x := _rng.randf_range(-limit, limit)
+		var z := _rng.randf_range(-limit, limit)
+		if maxf(absf(x), absf(z)) < outer_band or (absf(x) < 5.0 and z < -10.0):
+			continue
+		var candidate := Vector2(x, z)
+		var clear := true
+		for existing in grove.get_children():
+			var tree_pos := Vector2(existing.position.x, existing.position.z)
+			if candidate.distance_squared_to(tree_pos) < 15.0 * 15.0:
+				clear = false
+				break
+		if not clear:
+			continue
+		var tree := Node3D.new()
+		tree.name = "GiantTree_Outer_%d" % grove.get_child_count()
+		tree.position = Vector3(x, 0.0, z)
+		grove.add_child(tree)
+		_build_tree(tree)
 
 func _build_tree(tree: Node3D) -> void:
 	var height := _rng.randf_range(34.0, 52.0)
@@ -167,9 +199,11 @@ func _build_undergrowth() -> void:
 	var details := Node3D.new()
 	details.name = "Undergrowth"
 	add_child(details)
-	for i in 95:
-		var pos := Vector3(_rng.randf_range(-90.0, 90.0), 0.0,
-			_rng.randf_range(-90.0, 90.0))
+	var area_scale := MAP_SCALE * MAP_SCALE
+	var fern_limit := FOREST_HALF_SIZE - 5.0
+	for i in roundi(95.0 * area_scale):
+		var pos := Vector3(_rng.randf_range(-fern_limit, fern_limit), 0.0,
+			_rng.randf_range(-fern_limit, fern_limit))
 		if pos.length() < 9.0:
 			continue
 		var bush := MeshInstance3D.new()
@@ -185,7 +219,8 @@ func _build_undergrowth() -> void:
 			_rng.randf_range(0.8, 1.8))
 		bush.material_override = _leaf_materials[i % _leaf_materials.size()]
 		details.add_child(bush)
-	for i in 18:
+	var rock_limit := FOREST_HALF_SIZE - 10.0
+	for i in roundi(18.0 * area_scale):
 		var rock := MeshInstance3D.new()
 		rock.name = "MossyRock_%d" % i
 		var mesh := SphereMesh.new()
@@ -194,8 +229,8 @@ func _build_undergrowth() -> void:
 		mesh.radial_segments = 6
 		mesh.rings = 3
 		rock.mesh = mesh
-		rock.position = Vector3(_rng.randf_range(-85.0, 85.0), 0.35,
-			_rng.randf_range(-85.0, 85.0))
+		rock.position = Vector3(_rng.randf_range(-rock_limit, rock_limit), 0.35,
+			_rng.randf_range(-rock_limit, rock_limit))
 		rock.scale = Vector3(1.3, 0.6, 1.0)
 		rock.material_override = _rock_material
 		details.add_child(rock)

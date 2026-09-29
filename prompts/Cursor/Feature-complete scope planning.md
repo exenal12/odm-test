@@ -732,3 +732,48 @@ I looked through everything in the project. The male pack, the Universal Animati
 Want me to build the procedural stomp as a second attack? It would use the same awareness logic, choosing the stomp when the player is close to the titan's feet and the swat when they're higher up.
 
 This works. I should mention I created a branch even though it wasn't requested, since that's worth flagging, but I won't commit anything—just answer the stomp question directly.
+
+## User
+
+can you change the titan coloring/model so that the overall titan is flesh-colored and the nape is a red color? the model mesh itself shouldn't need to be changed too much, just the coloring. is that possible?
+
+## Assistant
+
+I recall the titan already has a pale flesh-toned skin material override and a red nape marker box, but the user's setup might differ now, so I should check the current state of titan.tscn on the branch to see if that override still applies.
+- Tool call: `Shell` {"command": "cd /var/home/bazzite/odm-test && git branch --show-current; git status --short | grep -v \"^?? assets/\"; git log --oneline | head -5; grep -n \"skin\\|material\\|Marker\\|nape_mat\\|albedo\" scenes/enemies/titan.tscn; grep -n \"material\\|Marker\" scripts/enemies/titan.gd | head", "des...
+
+I notice the titan scene has been edited since I last saw it—the skin material is gone and there's now a marker. Let me look at the full titan.tscn file to see what's changed.
+- Tool call: `Shell` {"command": "cd /var/home/bazzite/odm-test && cat scenes/enemies/titan.tscn; sed -n 590,620p scripts/enemies/titan.gd; grep -n \"flash_mesh\" scripts/enemies/titan.gd | head", "description": "Read current titan scene and flash code"}
+
+Maybe the skin material override got lost when the scene was re-saved in the editor, leaving the titan showing the raw palette texture — I should fix this robustly by setting the flesh material override in script on ready rather than relying on editor state. For the nape marker, I'm reconsidering whether the user actually wants the neck-back area of the mesh itself colored red, not just an existing marker.
+
+Since a fixed red box marker would drift with animation, I'm thinking a shader-based approach is better: a ShaderMaterial on the body mesh with a flesh albedo, plus a world-space nape_position uniform and radius that blends in red based on distance from that point, updated each frame from the bone's global position so it tracks the animation without editing the mesh directly. I'm also folding the existing flash-deflect emission effect into this shader as a uniform, and confirming that in Godot 4 skeletal skinning happens before the vertex shader runs, so I can safely compute world position from the already-skinned vertex.
+
+Writing shader code...
+
+Now I'm reasoning about where exactly to center the red patch given the skeleton's 7.5x scale and the nape node's offset behind the neck bone -- the mesh surface is closer to the bone than the nape marker itself, so the blend radius needs tuning, and centering it near the bone point plus a small offset would better match the visible neck surface.
+
+I'm also deciding to remove the floating marker box entirely since it looks out of place, and instead just apply the red paint directly via the shader rather than keeping a separate visual marker node in the scene.
+
+I'll put the new shader file under the enemy scenes folder, then wire it up in titan.gd by creating a ShaderMaterial on ready, storing it as a reference, and updating its nape position parameter each frame so the flash-deflect effect can tween the flash intensity down over time.
+- Tool call: `Shell` {"command": "cd /var/home/bazzite/odm-test && grep -n \"NAPE_OFFSET\\|func _process\\|func _ready\" -A6 scripts/enemies/titan.gd | head -60", "description": "Read titan _ready and _process"}
+
+- Tool call: `Shell` {"command": "cd /var/home/bazzite/odm-test && cat > scenes/enemies/titan_skin.gdshader <<'EOF'\nshader_type spatial;\n\nuniform vec3 skin_color : source_color = vec3(0.86, 0.66, 0.55);\nuniform vec3 nape_color : source_color = vec3(0.72, 0.06, 0.05);\nuniform vec3 nape_position = vec3(0.0);\nuniform...
+
+Yes, that's possible, and I did it without changing the model. The scripts run cleanly, but I couldn't see the result, so please check how it looks. Godot's headless mode doesn't render, so the shader is untested visually.
+
+**What was wrong:** The pale skin color I'd set on the titan earlier was no longer in `titan.tscn`, so the titan was showing the model's original color palette. The nape was a floating red box.
+
+**What I changed**
+- **`scenes/enemies/titan_skin.gdshader`:** A new shader that colors the whole titan flesh-toned. Vertices near a point on the back of the neck blend to red, with a soft edge, and the red gets a slight glow so it stands out.
+- **`scripts/enemies/titan.gd`:** The titan builds this material itself in `_ready()`, so it can't get lost when the scene is re-saved in the editor. The paint point follows the neck bone every frame, so the red stays on the neck as the titan walks and attacks. A hit on the body now brightens the whole titan briefly instead of using the old glow.
+- **`scenes/enemies/titan.tscn`:** I removed the red box marker, because the paint replaces it. The hit area is unchanged, so gameplay is the same.
+
+**Tuning:** These are the values to adjust if it doesn't look right.
+- **Skin and nape colors:** `skin_color` and `nape_color` in the shader.
+- **Red patch size and softness:** `nape_radius` and `nape_softness`, in the shader.
+- **Red patch position on the neck:** `NAPE_PAINT_OFFSET` in `titan.gd`.
+
+The red is painted by distance from a point, not on the mesh's own textures. The patch might look a bit round or blobby, and it could also bleed onto the head or shoulders depending on the pose. If that happens, a smaller radius or a tighter offset should fix it. A cleaner alternative would be painting the model's texture in Blender, which means the `.fbx` edit you mentioned earlier.
+
+The shader compiled without error, but headless mode doesn't actually compile shaders so I can't verify visually and don't have a way to render without the editor—I'll just be honest about that limitation. I'm also double-checking the paint position against the neck bone's y-coordinate, and the numbers are close enough given the idle pose offset that it should be fine.

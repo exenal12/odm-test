@@ -15,6 +15,7 @@ OUT = ROOT / "prompts" / "Cursor"
 
 
 TITLES = {
+    "99c6085f-cdd5-4ae0-af1c-b8b81de5ccea": "HUD visual restyle",
     "69ea6a94-af8b-40ab-92fa-3134eaa9ad7f": "Game sound implementation",
     "56af8281-2a05-4671-8076-25db710a5459": "Titan grab mechanic",
     "357deda7-ff27-4dab-aa0c-5ed1a9af4b0b": "Free asset sourcing for ODM gear",

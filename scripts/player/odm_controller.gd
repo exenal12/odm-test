@@ -286,6 +286,17 @@ func _try_fire(hook: ODMHook) -> bool:
 	return ok
 
 
+## Returns true when a hook fired now would hit something within cable length.
+func can_hook_target() -> bool:
+	if _player == null:
+		return false
+	var origin := _aim_origin()
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + _aim_direction().normalized() * max_cable_length)
+	query.collision_mask = grapple_collision_mask
+	query.collide_with_areas = false
+	return not _player.get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
 ## Chooses the camera position as the hook origin, falling back to the player
 ## body when no camera is available.
 func _aim_origin() -> Vector3:

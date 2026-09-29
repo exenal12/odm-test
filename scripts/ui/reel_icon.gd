@@ -9,7 +9,7 @@ extends Control
 
 
 func _draw() -> void:
-	var color := Color(0.29, 0.91, 0.49) if reel_enabled else Color(0.58, 0.62, 0.62)
+	var color := Color(0.85, 0.8, 0.65) if reel_enabled else Color(0.5, 0.48, 0.45)
 	var center := Vector2(9, 15)
 	draw_arc(center, 5.5, 0.0, TAU, 24, color, 2.0, true)
 	draw_circle(center, 1.5, color)

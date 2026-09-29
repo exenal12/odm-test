@@ -11,6 +11,9 @@ enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, DEAD }
 const NAPE_BONE := "B-neck"
 ## Nape offset from the neck bone in skeleton space (unscaled model units, -Z is the back).
 const NAPE_OFFSET := Vector3(0.0, 0.05, -0.13)
+## Center of the red paint on the neck, in skeleton space (unscaled model units).
+const NAPE_PAINT_OFFSET := Vector3(0.0, 0.03, -0.05)
+const SKIN_SHADER := preload("res://scenes/enemies/titan_skin.gdshader")
 ## Hook and hit capsules: [from bone, to bone or skeleton-space offset, radius in model units].
 const SEGMENTS := [
 	["B-hips", "B-chest", 0.2], ["B-chest", "B-neck", 0.19],
@@ -101,6 +104,7 @@ var target: CharacterBody3D
 var last_known: Vector3
 
 var _neck_bone: int = -1
+var _skin_material: ShaderMaterial
 var _segments: Array[Dictionary] = []
 var _exclude: Array[RID] = []
 var _home: Vector3
@@ -123,6 +127,9 @@ var _grab_bone: int = -1
 var _last_hit_damage: float = 20.0
 
 func _ready() -> void:
+	_skin_material = ShaderMaterial.new()
+	_skin_material.shader = SKIN_SHADER
+	flash_mesh.material_override = _skin_material
 	_neck_bone = skeleton.find_bone(NAPE_BONE)
 	_exclude.append(get_rid())
 	for def in SEGMENTS:
@@ -168,6 +175,7 @@ func _process(_delta: float) -> void:
 		return
 	var neck := skeleton.get_bone_global_pose(_neck_bone).origin
 	nape.global_position = skeleton.global_transform * (neck + NAPE_OFFSET)
+	_skin_material.set_shader_parameter(&"nape_position", skeleton.global_transform * (neck + NAPE_PAINT_OFFSET))
 
 
 func _physics_process(delta: float) -> void:
@@ -610,9 +618,5 @@ func _die() -> void:
 
 
 func _flash_deflect() -> void:
-	var material := flash_mesh.material_override as StandardMaterial3D
-	if material == null:
-		return
 	var tween := create_tween()
-	tween.tween_property(material, "emission_energy_multiplier", 1.5, 0.04)
-	tween.tween_property(material, "emission_energy_multiplier", 0.0, 0.2)
+	tween.tween_method(func(v: float) -> void: _skin_material.set_shader_parameter(&"flash", v), 0.35, 0.0, 0.25)

@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" path="res://scripts/ui/odm_hud.gd" id="1_hud"]
 [ext_resource type="Script" path="res://scripts/ui/reel_icon.gd" id="2_reel_icon"]
+[ext_resource type="Theme" path="res://scenes/ui/hud_theme.tres" id="3_theme"]
+[ext_resource type="Script" path="res://scripts/ui/reticle.gd" id="4_reticle"]
+[ext_resource type="Script" path="res://scripts/ui/hook_indicator.gd" id="5_hook"]
 
 [node name="ODMHUD" type="CanvasLayer" groups=["odm_hud"]]
 layer = 10
@@ -9,6 +12,7 @@ script = ExtResource("1_hud")
 
 [node name="Root" type="Control" parent="."]
 layout_mode = 3
+theme = ExtResource("3_theme")
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
@@ -82,19 +86,20 @@ layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="LeftHook" type="ColorRect" parent="Root/GasPanel/VBox/Hooks"]
+[node name="LeftHook" type="Control" parent="Root/GasPanel/VBox/Hooks"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 12)
+custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
 mouse_filter = 2
-color = Color(0.25, 0.25, 0.28, 0.7)
+script = ExtResource("5_hook")
 
-[node name="RightHook" type="ColorRect" parent="Root/GasPanel/VBox/Hooks"]
+[node name="RightHook" type="Control" parent="Root/GasPanel/VBox/Hooks"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(48, 12)
+custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
 mouse_filter = 2
-color = Color(0.25, 0.25, 0.28, 0.7)
+script = ExtResource("5_hook")
+mirrored = true
 
 [node name="HealthPanel" type="PanelContainer" parent="Root"]
 layout_mode = 1
@@ -114,11 +119,35 @@ layout_mode = 2
 mouse_filter = 2
 text = "HEALTH 100"
 
-[node name="HealthBar" type="ProgressBar" parent="Root/HealthPanel/VBox"]
-unique_name_in_owner = true
+[node name="BarStack" type="Control" parent="Root/HealthPanel/VBox"]
 custom_minimum_size = Vector2(0, 18)
 layout_mode = 2
 mouse_filter = 2
+
+[node name="HealthGhost" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_type_variation = &"GhostBar"
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="HealthBar" type="ProgressBar" parent="Root/HealthPanel/VBox/BarStack"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_type_variation = &"HealthBar"
 max_value = 100.0
 value = 100.0
 show_percentage = false
@@ -148,7 +177,8 @@ mouse_filter = 2
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
-theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0.9, 0.25, 0.15, 1)
+theme_override_font_sizes/font_size = 26
 text = "ATTACK TO ESCAPE"
 horizontal_alignment = 1
 
@@ -181,7 +211,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0, 0, 0, 0.7)
+color = Color(0.05, 0, 0, 0.82)
 
 [node name="Center" type="VBoxContainer" parent="Root/DeathScreen"]
 layout_mode = 1
@@ -200,7 +230,9 @@ theme_override_constants/separation = 16
 
 [node name="DiedLabel" type="Label" parent="Root/DeathScreen/Center"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 48
+theme_override_colors/font_color = Color(0.8, 0.14, 0.1, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 84
 text = "YOU DIED"
 horizontal_alignment = 1
 
@@ -217,31 +249,14 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -8.0
-offset_top = -8.0
-offset_right = 8.0
-offset_bottom = 8.0
+offset_left = -24.0
+offset_top = -24.0
+offset_right = 24.0
+offset_bottom = 24.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-
-[node name="CrossH" type="ColorRect" parent="Root/Reticle"]
-layout_mode = 0
-offset_left = 2.0
-offset_top = 7.0
-offset_right = 14.0
-offset_bottom = 9.0
-mouse_filter = 2
-color = Color(1, 1, 1, 0.75)
-
-[node name="CrossV" type="ColorRect" parent="Root/Reticle"]
-layout_mode = 0
-offset_left = 7.0
-offset_top = 2.0
-offset_right = 9.0
-offset_bottom = 14.0
-mouse_filter = 2
-color = Color(1, 1, 1, 0.75)
+script = ExtResource("4_reticle")
 
 [node name="HintLabel" type="Label" parent="Root"]
 unique_name_in_owner = true
@@ -258,7 +273,8 @@ offset_bottom = -24.0
 grow_horizontal = 0
 grow_vertical = 0
 mouse_filter = 2
-theme_override_font_sizes/font_size = 13
+modulate = Color(1, 1, 1, 0.65)
+theme_override_font_sizes/font_size = 14
 text = "Q/LMB Left Hook  |  E/RMB Right Hook
 Shift Boost (air/hooked)  |  R Toggle reel
 V Cycle camera

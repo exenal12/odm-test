@@ -1,12 +1,12 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://d2ovvgorxhgnu"]
 
 [ext_resource type="PackedScene" uid="uid://6rhpcu44gq8c" path="res://assets/Human Melee Animations/Models/HumanF_Model.fbx" id="1_model"]
-[ext_resource type="Script" path="res://scripts/npc/soldier.gd" id="2_soldier"]
+[ext_resource type="Script" uid="uid://nxqbx8udd0ta" path="res://scripts/npc/soldier.gd" id="2_soldier"]
 [ext_resource type="Script" uid="uid://cvmrj6kehixxw" path="res://scripts/player/odm_controller.gd" id="3_odm"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear.tscn" id="4_gear"]
 [ext_resource type="PackedScene" path="res://scenes/props/sword.tscn" id="6_sword"]
 [ext_resource type="Script" uid="uid://dfnmq3njuafsb" path="res://scripts/player/player_animation.gd" id="8_animation"]
-[ext_resource type="AnimationLibrary" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
+[ext_resource type="AnimationLibrary" uid="uid://cy1gf11a4d152" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
 
@@ -14,52 +14,54 @@
 radius = 0.34814453
 height = 1.8745117
 
-[node name="Soldier" type="CharacterBody3D" groups=["soldier"]]
+[node name="Soldier" type="CharacterBody3D" unique_id=1083865270 groups=["soldier"]]
 collision_layer = 0
 script = ExtResource("2_soldier")
+run_speed = 4.0
+strike_chance = 0.015
 
-[node name="Model" parent="." instance=ExtResource("1_model")]
+[node name="Model" parent="." unique_id=782518840 instance=ExtResource("1_model")]
 
-[node name="HumanF_BodyMesh" parent="Model/Skeleton3D" index="0"]
+[node name="HumanF_BodyMesh" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(782518840, 272710244) index="0" unique_id=278777629]
 surface_material_override/0 = ExtResource("11_palette")
 
-[node name="LeftHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" index="1"]
+[node name="LeftHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(782518840, 272710244) index="1" unique_id=832334780]
 transform = Transform3D(0.9999989, -3.269597e-07, -3.799796e-07, -5.1036477e-07, -6.3329935e-08, -0.99999994, 2.3607572e-07, 1.0000002, 6.07688e-08, 0.69346005, 1.3612697, -0.0038468689)
 bone_name = "B-handProp.L"
 bone_idx = 46
 
-[node name="LeftSword" parent="Model/Skeleton3D/LeftHandAttachment" instance=ExtResource("6_sword")]
+[node name="LeftSword" parent="Model/Skeleton3D/LeftHandAttachment" unique_id=214927838 instance=ExtResource("6_sword")]
 transform = Transform3D(-1, 0, 8.742278e-08, 0, 1, 0, -8.742278e-08, 0, -1, 0, 0, 0)
 
-[node name="RightHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" index="2"]
+[node name="RightHandAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(782518840, 272710244) index="2" unique_id=1324952789]
 transform = Transform3D(1.0000002, 8.148345e-08, 2.8684735e-07, 2.4586916e-07, -2.2305176e-07, -0.99999976, -1.2604141e-07, 0.99999994, -2.0046718e-07, -0.6934601, 1.3612698, -0.003846934)
 bone_name = "B-handProp.R"
 bone_idx = 23
 
-[node name="RightSword" parent="Model/Skeleton3D/RightHandAttachment" instance=ExtResource("6_sword")]
+[node name="RightSword" parent="Model/Skeleton3D/RightHandAttachment" unique_id=1817642383 instance=ExtResource("6_sword")]
 
-[node name="HipGearAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" index="3"]
+[node name="HipGearAttachment" type="BoneAttachment3D" parent="Model/Skeleton3D" parent_id_path=PackedInt32Array(782518840, 272710244) index="3" unique_id=2030681382]
 transform = Transform3D(1, 0, 0, 0, 0.99514604, -0.098413005, 0, 0.098413005, 0.99514604, 0, 0.967712, 0.016772)
 bone_name = "B-hips"
 bone_idx = 1
 
-[node name="ODMGearVisual" parent="Model/Skeleton3D/HipGearAttachment" instance=ExtResource("10_visual")]
+[node name="ODMGearVisual" parent="Model/Skeleton3D/HipGearAttachment" unique_id=1860225564 instance=ExtResource("10_visual")]
 
-[node name="AnimationPlayer" type="AnimationPlayer" parent="Model"]
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Model" unique_id=1935573018]
 libraries/humanf = ExtResource("9_clips")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=2104111833]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.93436825, 0)
 shape = SubResource("CapsuleShape3D_soldier")
 
-[node name="ODMGear" parent="." instance=ExtResource("4_gear")]
+[node name="ODMGear" parent="." unique_id=1707652449 instance=ExtResource("4_gear")]
 
-[node name="ODMController" type="Node" parent="."]
+[node name="ODMController" type="Node" parent="." unique_id=283503388]
 script = ExtResource("3_odm")
-ai_controlled = true
 gas_reel_drain = 0.0
+ai_controlled = true
 
-[node name="PlayerAnimation" type="Node" parent="."]
+[node name="PlayerAnimation" type="Node" parent="." unique_id=196682099]
 script = ExtResource("8_animation")
 
 [editable path="Model"]

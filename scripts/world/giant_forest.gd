@@ -29,6 +29,7 @@ func _ready() -> void:
 	_build_trees()
 	_build_undergrowth()
 	_build_refills()
+	_build_navigation()
 
 
 func _material(color: Color) -> StandardMaterial3D:

@@ -40,6 +40,7 @@ func _material(color: Color) -> StandardMaterial3D:
 func _build_ground() -> void:
 	var body := StaticBody3D.new()
 	body.name = "ForestFloor"
+	body.add_to_group("nav_geometry")
 	body.position.y = -0.5
 	body.collision_layer = WORLD_LAYER
 	body.collision_mask = 0
@@ -60,6 +61,7 @@ func _build_ground() -> void:
 func _build_trees() -> void:
 	var grove := Node3D.new()
 	grove.name = "GiantTrees"
+	grove.add_to_group("nav_geometry")
 	add_child(grove)
 	for gx in range(-4, 5):
 		for gz in range(-4, 5):
@@ -219,3 +221,22 @@ func _build_refills() -> void:
 		glow.material_override = material
 		station.add_child(glow)
 		add_child(station)
+
+
+## Bakes a titan-sized navmesh from the floor and trunk colliders (in a thread).
+func _build_navigation() -> void:
+	var navmesh := NavigationMesh.new()
+	navmesh.cell_size = 0.5
+	navmesh.cell_height = 0.25
+	navmesh.agent_radius = 2.5
+	navmesh.agent_height = 12.0
+	navmesh.agent_max_climb = 0.5
+	navmesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+	navmesh.geometry_collision_mask = WORLD_LAYER
+	navmesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_GROUPS_WITH_CHILDREN
+	navmesh.geometry_source_group_name = &"nav_geometry"
+	var region := NavigationRegion3D.new()
+	region.name = "TitanNavRegion"
+	region.navigation_mesh = navmesh
+	add_child(region)
+	region.bake_navigation_mesh(true)

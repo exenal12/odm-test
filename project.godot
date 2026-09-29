@@ -46,6 +46,10 @@ camera_cycle={
 3d_physics/layer_2="grappleable"
 3d_physics/layer_3="titan_weakpoint"
 
+[navigation]
+
+3d/default_cell_size=0.5
+
 [physics]
 
 3d/physics_engine="Jolt Physics"

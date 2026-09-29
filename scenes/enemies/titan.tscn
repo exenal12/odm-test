@@ -1,8 +1,8 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://1vde6cktyc0l"]
 
-[ext_resource type="Script" path="res://scripts/enemies/titan.gd" id="1_titan"]
+[ext_resource type="Script" uid="uid://df4pft38ya6b0" path="res://scripts/enemies/titan.gd" id="1_titan"]
 [ext_resource type="PackedScene" uid="uid://c7uu1fe0ho06l" path="res://assets/Human Melee Animations/Models/HumanM_Model.fbx" id="2_model"]
-[ext_resource type="AnimationLibrary" path="res://scenes/enemies/animations/humanm_titan.tres" id="3_clips"]
+[ext_resource type="AnimationLibrary" uid="uid://dq6ubjq3xhj7r" path="res://scenes/enemies/animations/humanm_titan.tres" id="3_clips"]
 
 [sub_resource type="CapsuleShape3D" id="body_shape"]
 radius = 2.2
@@ -11,49 +11,50 @@ height = 11.0
 [sub_resource type="BoxShape3D" id="nape_shape"]
 size = Vector3(2.6, 2.4, 2.4)
 
-[sub_resource type="BoxMesh" id="nape_mesh"]
-size = Vector3(1.2, 1.0, 0.4)
-
-[sub_resource type="StandardMaterial3D" id="skin"]
-albedo_color = Color(0.78, 0.6, 0.5, 1)
-roughness = 0.9
-emission_enabled = true
-emission = Color(1, 1, 1, 1)
-emission_energy_multiplier = 0.0
-
 [sub_resource type="StandardMaterial3D" id="nape_mat"]
 albedo_color = Color(0.8, 0.1, 0.1, 1)
 emission_enabled = true
 emission = Color(0.9, 0.1, 0.1, 1)
-emission_energy_multiplier = 1.0
 
-[node name="Titan" type="CharacterBody3D" groups=["titan"]]
+[sub_resource type="BoxMesh" id="nape_mesh"]
+size = Vector3(1.2, 1, 0.4)
+
+[node name="Titan" type="CharacterBody3D" unique_id=1736476940 groups=["titan"]]
 collision_layer = 0
-collision_mask = 1
 script = ExtResource("1_titan")
+hearing_range = 0.0
+hearing_gain = 0.5
+close_range = 0.0
+suspicious_threshold = 0.664
+knockback = 15.0
+knockback_up = 3.0
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=230009567]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5.5, 0)
 shape = SubResource("body_shape")
 
-[node name="Model" parent="." instance=ExtResource("2_model")]
+[node name="Model" parent="." unique_id=1293428732 instance=ExtResource("2_model")]
 transform = Transform3D(7.5, 0, 0, 0, 7.5, 0, 0, 0, 7.5, 0, 0, 0)
 
-[node name="HumanM_BodyMesh" parent="Model/Skeleton3D" index="0"]
-material_override = SubResource("skin")
-
-[node name="AnimationPlayer" type="AnimationPlayer" parent="Model"]
+[node name="AnimationPlayer" type="AnimationPlayer" parent="Model" unique_id=1113526900]
 libraries/titan = ExtResource("3_clips")
-autoplay = "titan/Idle"
+autoplay = &"titan/Idle"
 
-[node name="Nape" type="Area3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 11.6, -1.0)
+[node name="NavAgent" type="NavigationAgent3D" parent="." unique_id=536448040]
+path_desired_distance = 2.5
+target_desired_distance = 3.0
+path_max_distance = 12.0
+height = 12.0
+radius = 2.5
+
+[node name="Nape" type="Area3D" parent="." unique_id=426362141]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 11.6, -1)
 collision_layer = 4
 collision_mask = 0
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Nape"]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Nape" unique_id=465718268]
 shape = SubResource("nape_shape")
 
-[node name="Marker" type="MeshInstance3D" parent="Nape"]
+[node name="Marker" type="MeshInstance3D" parent="Nape" unique_id=907936733]
 material_override = SubResource("nape_mat")
 mesh = SubResource("nape_mesh")

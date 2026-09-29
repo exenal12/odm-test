@@ -25,6 +25,7 @@ func _ready() -> void:
 		_material(Color(0.20, 0.34, 0.19)),
 	]
 	_build_ground()
+	MapBounds.add_to(self, Vector2(FOREST_HALF_SIZE, FOREST_HALF_SIZE), WORLD_LAYER)
 	_build_trees()
 	_build_undergrowth()
 	_build_refills()

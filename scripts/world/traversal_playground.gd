@@ -19,6 +19,7 @@ func _build() -> void:
 	_clear_generated()
 	_add_zone_markers()
 	_build_ground()
+	MapBounds.add_to(_generated(), floor_size * 0.5, LAYER_WORLD)
 	_build_jump_rooftops()
 	_build_slide_tunnel()
 	_build_ramps_and_ledges()

@@ -9,7 +9,8 @@ const CLIPS := {
 	"Idle": [MALE + "Idles/HumanM@Idle01.fbx", true],
 	"Walk": [MALE + "Movement/Run/HumanM@Run01_Forward.fbx", true],
 	"Damage": [MALE + "Combat/HumanM@CombatDamage01.fbx", false],
-	"Attack": [MALE + "Combat/2H/HumanM@Attack2H01.fbx", false],
+	"SwatL": [MALE + "Combat/1H/HumanM@Attack1H01_L.fbx", false],
+	"SwatR": [MALE + "Combat/1H/HumanM@Attack1H01_R.fbx", false],
 	"Death": [MALE + "Combat/HumanM@Death01.fbx", false],
 }
 

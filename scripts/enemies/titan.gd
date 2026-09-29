@@ -8,6 +8,7 @@ signal hit_player(player: CharacterBody3D, damage: float)
 
 enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, DEAD }
 
+const GrabArm := preload("res://scripts/enemies/titan_grab_arm.gd")
 const NAPE_BONE := "B-neck"
 ## Nape offset from the neck bone in skeleton space (unscaled model units, -Z is the back).
 const NAPE_OFFSET := Vector3(0.0, 0.05, -0.13)
@@ -63,8 +64,9 @@ const SEGMENTS := [
 @export var attack_damage: float = 25.0
 @export var attack_speed: float = 0.8
 @export var attack_cooldown: float = 2.0
-@export_range(0.0, 1.0) var hit_start_fraction: float = 0.35
-@export_range(0.0, 1.0) var hit_end_fraction: float = 0.6
+## Swat and grab clips peak at about 25% of their length.
+@export_range(0.0, 1.0) var hit_start_fraction: float = 0.2
+@export_range(0.0, 1.0) var hit_end_fraction: float = 0.42
 ## A hand hits if the player is within this horizontal radius and vertical reach of it.
 @export var hit_radius: float = 5.5
 @export var hit_vertical_reach: float = 10.0
@@ -80,6 +82,14 @@ const SEGMENTS := [
 ## Damage the gripping arm must take before the titan lets go.
 @export var hand_health_max: float = 80.0
 @export var grab_cooldown: float = 6.0
+## Seconds to lift the player from the catch point to the hold point.
+@export var grab_lift_time: float = 0.5
+## Nudges the hold point, in arm-reach units: x = toward the gripping side, y = up, z = forward.
+@export var grab_hold_offset: Vector3 = Vector3.ZERO
+## Nudges the player within the palm, in metres along the palm's own axes.
+@export var grab_player_offset: Vector3 = Vector3.ZERO
+## Extra rotation (degrees) applied on top of the palm orientation.
+@export var grab_rotation_offset_deg: Vector3 = Vector3.ZERO
 ## Speed the player is thrown away at when freed.
 @export var release_speed: float = 12.0
 
@@ -120,10 +130,19 @@ var _attack_landed: bool = false
 var _hand_bones: Array[int] = []
 var _debug_label: Label3D
 var _pending_grab: bool = false
+var _attack_hand: int = 0
 var _grab_cooldown_left: float = 0.0
 var _grab_tick_left: float = 0.0
 var _hand_health: float = 0.0
 var _grab_bone: int = -1
+var _grab_arm: GrabArm
+var _grab_shoulder: int = -1
+var _grab_time: float = 0.0
+var _grab_start: Vector3
+var _grab_start_basis: Basis
+var _grab_side: float = 1.0
+var _arm_reach: float = 1.0
+var _squeeze: float = 0.0
 var _last_hit_damage: float = 20.0
 
 func _ready() -> void:
@@ -135,7 +154,8 @@ func _ready() -> void:
 	for def in SEGMENTS:
 		_add_segment(def[0], def[1], def[2])
 	_hand_bones = [skeleton.find_bone("B-hand.L"), skeleton.find_bone("B-hand.R")]
-	_attack_length = animation_player.get_animation(&"titan/Attack").length
+	_grab_arm = GrabArm.new()
+	skeleton.add_child(_grab_arm)
 	_home = global_position
 	last_known = global_position
 	if show_debug:
@@ -325,7 +345,10 @@ func _set_state(new_state: State) -> void:
 		_attack_landed = false
 		_pending_grab = target == player and _grab_cooldown_left <= 0.0 \
 				and player.get(&"grabbed") != true and randf() < grab_chance
-		animation_player.play(&"titan/Attack", 0.3)
+		_attack_hand = _nearest_hand()
+		var clip := &"titan/SwatL" if _attack_hand == 0 else &"titan/SwatR"
+		_attack_length = animation_player.get_animation(clip).length
+		animation_player.play(clip, 0.3)
 		animation_player.speed_scale = attack_speed
 
 
@@ -425,15 +448,27 @@ func _try_land_hit() -> void:
 		hit_player.emit(player, attack_damage)
 
 
-## Returns the first hand bone within reach of the player, or -1.
-func _hand_in_reach() -> int:
-	var center := target.global_position + Vector3.UP * 0.9
+## Index into _hand_bones (0 = left, 1 = right) of the hand closest to the target.
+func _nearest_hand() -> int:
 	var xform := skeleton.global_transform
-	for bone in _hand_bones:
-		var hand := xform * skeleton.get_bone_global_pose(bone).origin
-		var offset := hand - center
-		if Vector2(offset.x, offset.z).length() <= hit_radius and absf(offset.y) <= hit_vertical_reach:
-			return bone
+	var best := 0
+	var best_dist := INF
+	for i in _hand_bones.size():
+		var hand := xform * skeleton.get_bone_global_pose(_hand_bones[i]).origin
+		var dist := hand.distance_squared_to(target.global_position)
+		if dist < best_dist:
+			best_dist = dist
+			best = i
+	return best
+
+
+## Returns the swinging hand's bone if it is within reach of the target, or -1.
+func _hand_in_reach() -> int:
+	var bone: int = _hand_bones[_attack_hand]
+	var hand := skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
+	var offset := hand - (target.global_position + Vector3.UP * 0.9)
+	if Vector2(offset.x, offset.z).length() <= hit_radius and absf(offset.y) <= hit_vertical_reach:
+		return bone
 	return -1
 
 
@@ -443,13 +478,30 @@ func _begin_grab(bone: int) -> void:
 	_grab_bone = bone
 	_hand_health = hand_health_max
 	_grab_tick_left = grab_tick
+	_grab_time = 0.0
+	_squeeze = 0.0
+	_grab_start = player.global_position
+	_grab_start_basis = player.global_basis.orthonormalized()
 	_set_state(State.GRAB)
-	animation_player.pause()
+	# Idle keeps the body alive; the IK arm is layered on top of it.
+	animation_player.speed_scale = 1.0
+	animation_player.play(&"titan/Idle", 0.4)
 	var sword := player.get_node_or_null("SwordCombat")
 	if sword != null:
 		_last_hit_damage = maxf(1.0, sword.damage)
+	var side := skeleton.get_bone_name(bone).trim_prefix("B-hand")
+	_grab_arm.setup("B-upperArm" + side, "B-forearm" + side, "B-hand" + side, side)
+	_grab_shoulder = skeleton.find_bone("B-upperArm" + side)
+	var chest := skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("B-chest")).origin
+	var hand := skeleton.global_transform * skeleton.get_bone_global_pose(bone).origin
+	_grab_side = 1.0 if (hand - chest).dot(global_basis.x) >= 0.0 else -1.0
+	var scale_factor := skeleton.global_transform.basis.get_scale().x
+	var shoulder_pos := skeleton.get_bone_global_pose(skeleton.find_bone("B-upperArm" + side)).origin
+	var elbow_pos := skeleton.get_bone_global_pose(skeleton.find_bone("B-forearm" + side)).origin
+	var hand_pos := skeleton.get_bone_global_pose(bone).origin
+	_arm_reach = (shoulder_pos.distance_to(elbow_pos) + elbow_pos.distance_to(hand_pos)) * scale_factor
 	player.on_grabbed(self)
-	_hold_player()
+	_hold_player(0.0)
 	_report_grab_progress()
 
 
@@ -463,17 +515,45 @@ func _state_grab(delta: float) -> void:
 	if player == null or not is_instance_valid(player) or player.get(&"grabbed") != true:
 		_end_grab(false)
 		return
-	_hold_player()
+	_grab_time += delta
+	_squeeze = move_toward(_squeeze, 0.0, delta * 3.0)
+	_hold_player(clampf(_grab_time / grab_lift_time, 0.0, 1.0))
 	_grab_tick_left -= delta
 	if _grab_tick_left <= 0.0:
 		_grab_tick_left += grab_tick
+		_squeeze = 1.0
 		player.take_damage(grab_damage, self, true)
 		hit_player.emit(player, grab_damage)
 
 
-func _hold_player() -> void:
-	var hand := skeleton.global_transform * skeleton.get_bone_global_pose(_grab_bone).origin
-	player.global_position = hand - Vector3.UP * 0.9
+## Lifts the player from where they were caught to a point held out in front of the
+## shoulder, tightening the fist on each crush tick.
+func _hold_player(lift: float) -> void:
+	var eased := smoothstep(0.0, 1.0, lift)
+	var shoulder := skeleton.global_transform * skeleton.get_bone_global_pose(_grab_shoulder).origin
+	var chest := skeleton.global_transform * skeleton.get_bone_global_pose(skeleton.find_bone("B-chest")).origin
+	var forward := _flat_dir(global_basis.z)
+	# Centred in front of the body at shoulder height, slightly toward the gripping arm.
+	var hold := Vector3(chest.x, shoulder.y, chest.z) \
+			+ forward * _arm_reach * (0.85 - 0.05 * _squeeze) \
+			+ global_basis.x.normalized() * _grab_side * _arm_reach * 0.05 \
+			+ Vector3.DOWN * _arm_reach * 0.05 \
+			+ (global_basis.x.normalized() * grab_hold_offset.x + Vector3.UP * grab_hold_offset.y \
+			+ forward * grab_hold_offset.z) * _arm_reach
+	var catch_center := _grab_start + Vector3.UP * 0.9
+	# The arm aims at the fixed hold point, never at the player, so there is no feedback loop.
+	_grab_arm.target_world = catch_center.lerp(hold, eased)
+	_grab_arm.squeeze = _squeeze
+	_grab_arm.weight = eased
+	var palm_basis := _grab_arm.palm_basis * Basis.from_euler(grab_rotation_offset_deg * (PI / 180.0))
+	var wanted := _grab_start.lerp(hold - Vector3.UP * 0.9, eased)
+	if _grab_time > 0.0:
+		var in_palm := _grab_arm.palm_world + palm_basis * grab_player_offset - Vector3.UP * 0.9
+		wanted = wanted.lerp(in_palm, eased)
+	player.global_position = wanted
+	# Match the palm's orientation, blending from the catch pose.
+	player.global_basis = _grab_start_basis.slerp(palm_basis.orthonormalized(), eased)
+	_grab_arm.pole_world = global_basis.x.normalized() * _grab_side + Vector3.DOWN * 0.6
 
 
 ## Frees the player (if still held) and returns to chasing.
@@ -484,6 +564,7 @@ func _end_grab(throw_player: bool) -> void:
 			impulse = _flat_dir(player.global_position - global_position) * release_speed \
 					+ Vector3.UP * release_speed * 0.5
 		player.on_released(impulse)
+	create_tween().tween_property(_grab_arm, "weight", 0.0, 0.25)
 	_grab_cooldown_left = grab_cooldown
 	_cooldown_left = attack_cooldown
 	if state == State.GRAB:

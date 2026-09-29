@@ -20,59 +20,57 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="ReelPanel" type="PanelContainer" parent="Root"]
+[node name="BottomLeft" type="VBoxContainer" parent="Root"]
 layout_mode = 1
 anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 24.0
-offset_top = -132.0
-offset_right = 164.0
-offset_bottom = -96.0
+offset_top = -24.0
+offset_right = 280.0
+offset_bottom = -24.0
 grow_vertical = 0
 mouse_filter = 2
+theme_override_constants/separation = 8
 
-[node name="ReelRow" type="HBoxContainer" parent="Root/ReelPanel"]
+[node name="ReelPanel" type="PanelContainer" parent="Root/BottomLeft"]
+layout_mode = 2
+size_flags_horizontal = 0
+mouse_filter = 2
+
+[node name="ReelRow" type="HBoxContainer" parent="Root/BottomLeft/ReelPanel"]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="ReelIcon" type="Control" parent="Root/ReelPanel/ReelRow"]
+[node name="ReelIcon" type="Control" parent="Root/BottomLeft/ReelPanel/ReelRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(28, 28)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("2_reel_icon")
 
-[node name="ReelStatus" type="Label" parent="Root/ReelPanel/ReelRow"]
+[node name="ReelStatus" type="Label" parent="Root/BottomLeft/ReelPanel/ReelRow"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 text = "REEL ON"
 
-[node name="GasPanel" type="PanelContainer" parent="Root"]
-layout_mode = 1
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 24.0
-offset_top = -88.0
-offset_right = 280.0
-offset_bottom = -24.0
-grow_vertical = 0
-mouse_filter = 2
-
-[node name="VBox" type="VBoxContainer" parent="Root/GasPanel"]
+[node name="GasPanel" type="PanelContainer" parent="Root/BottomLeft"]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="GasLabel" type="Label" parent="Root/GasPanel/VBox"]
+[node name="VBox" type="VBoxContainer" parent="Root/BottomLeft/GasPanel"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="GasLabel" type="Label" parent="Root/BottomLeft/GasPanel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 text = "GAS 100%"
 
-[node name="GasBar" type="ProgressBar" parent="Root/GasPanel/VBox"]
+[node name="GasBar" type="ProgressBar" parent="Root/BottomLeft/GasPanel/VBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 18)
 layout_mode = 2
@@ -81,19 +79,19 @@ max_value = 100.0
 value = 100.0
 show_percentage = false
 
-[node name="Hooks" type="HBoxContainer" parent="Root/GasPanel/VBox"]
+[node name="Hooks" type="HBoxContainer" parent="Root/BottomLeft/GasPanel/VBox"]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
 
-[node name="LeftHook" type="Control" parent="Root/GasPanel/VBox/Hooks"]
+[node name="LeftHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
 mouse_filter = 2
 script = ExtResource("5_hook")
 
-[node name="RightHook" type="Control" parent="Root/GasPanel/VBox/Hooks"]
+[node name="RightHook" type="Control" parent="Root/BottomLeft/GasPanel/VBox/Hooks"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(56, 14)
 layout_mode = 2
@@ -102,6 +100,7 @@ script = ExtResource("5_hook")
 mirrored = true
 
 [node name="HealthPanel" type="PanelContainer" parent="Root"]
+custom_minimum_size = Vector2(0, 72)
 layout_mode = 1
 offset_left = 24.0
 offset_top = 24.0
@@ -112,6 +111,7 @@ mouse_filter = 2
 [node name="VBox" type="VBoxContainer" parent="Root/HealthPanel"]
 layout_mode = 2
 mouse_filter = 2
+alignment = 1
 
 [node name="HealthLabel" type="Label" parent="Root/HealthPanel/VBox"]
 unique_name_in_owner = true
@@ -153,26 +153,28 @@ value = 100.0
 show_percentage = false
 
 [node name="KillPanel" type="PanelContainer" parent="Root"]
+custom_minimum_size = Vector2(0, 72)
 layout_mode = 1
 anchors_preset = 1
 anchor_left = 1.0
 anchor_right = 1.0
-offset_left = -200.0
+offset_left = -140.0
 offset_top = 24.0
 offset_right = -24.0
-offset_bottom = 88.0
+offset_bottom = 68.0
 grow_horizontal = 0
 mouse_filter = 2
 
 [node name="VBox" type="VBoxContainer" parent="Root/KillPanel"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_constants/separation = -6
+alignment = 1
+theme_override_constants/separation = -8
 
 [node name="KillTitle" type="Label" parent="Root/KillPanel/VBox"]
 layout_mode = 2
 mouse_filter = 2
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 11
 text = "TITANS SLAIN"
 horizontal_alignment = 2
 
@@ -181,8 +183,8 @@ unique_name_in_owner = true
 layout_mode = 2
 mouse_filter = 2
 theme_override_colors/font_color = Color(0.85, 0.2, 0.12, 1)
-theme_override_constants/outline_size = 5
-theme_override_font_sizes/font_size = 44
+theme_override_constants/outline_size = 4
+theme_override_font_sizes/font_size = 28
 text = "0"
 horizontal_alignment = 2
 

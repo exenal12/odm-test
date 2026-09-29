@@ -246,3 +246,57 @@ I added a kill counter to the top right of the HUD. It's headless-checked only, 
 In a headless test, calling the kill handler once moved the counter to 1. `forest_world.tscn` still loads with no errors. I didn't get an actual titan kill in that check, so the link from a real death to the counter is untested. The counter resets when the scene restarts after you die.
 
 The counter counts every titan death, including ones your allied soldiers kill. Nothing records who landed the final blow. If you want it to count only your kills, `Titan` would need to record its killer. `on_sword_hit` doesn't receive the attacker node, so that means passing it through. Do you want me to add that?
+
+## User
+
+the kill counter should be a bit smaller, it takes up a bit too much space
+
+## Assistant
+
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('''offset_left = -200.0\noffset_top = 24.0\noffset_right = -24.0\noffset_bottom = 88.0''','''offset_left = -140.0\noffset_top = 24.0\noffset_right = -24.0\noffset_bottom = 68.0'''...
+
+I made the kill counter smaller in `scenes/ui/odm_hud.tscn`. The world scene still loads with no errors, but I haven't seen the result on screen.
+
+- **Panel:** it is 116 px wide, down from 176 px, and about 44 px tall, down from 64 px.
+- **Number:** the font size is 28, down from 44.
+- **Title:** "TITANS SLAIN" is size 11, down from 14.
+
+It stays at the top right, 24 px from the edges. If it's still too big or now too small, tell me which way to go and I'll adjust it.
+
+## User
+
+the UI should be "inline" with the rest of the elements, it looks to be a bit off
+
+## Assistant
+
+I'm checking alignment between panels—margins and offsets seem consistent left and right, but the health panel and kill panel have mismatched heights, so I need to figure out how their actual sizes are determined since PanelContainer sizes to content rather than fixed offsets.
+
+Rather than guessing at the exact pixel breakdown, the simplest fix is to standardize both panels: give the kill panel the same custom minimum size and label styling as the health panel so they visually match. I'm trying to figure out if I can actually capture a screenshot to verify this, maybe by running the game headlessly or scripting the HUD to render a frame and save the viewport image.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > /tmp/shot.gd <<'EOF'\nextends SceneTree\nfunc _initialize():\n\troot.size = Vector2i(1280, 720)\n\tvar bg := ColorRect.new(); bg.color = Color(0.4,0.55,0.7); bg.size = Vector2(1280,720); root.add_child(bg)\n\tvar s = load(\"res://scenes/ui/odm_hud.tscn...
+
+Sandbox blocks the display. Get the layout rects headless instead.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && sed -i '/get_image/d' /tmp/shot.gd && timeout 60 godot --headless --path . --script /tmp/shot.gd 2>&1 | grep -E \"Panel|Hint\"", "block_until_ms": 70000}
+
+I'm noticing the viewport dimensions don't quite line up with the panel measurements—the kill panel's height is 69 versus health's 64, likely due to content-driven sizing like an outline or larger font line-height. The horizontal edges do seem aligned with the hint though, so the mismatch is really just in that top row height.
+
+I've also spotted a real bug: the Reel panel's bottom edge overlaps the gas panel's top by 9px. My fix is to group both panels into a bottom-left VBoxContainer with proper anchoring, growth direction, and separation, then reparent them and clean up their layout modes so the offsets aren't needed anymore. I'll also bump the kill panel's minimum height to 64 to match health and center its content so the sizes align visually.
+
+Now I'm editing the scene file directly with a script, updating the node parent paths for ReelPanel and GasPanel to point into the new BottomLeft container while preserving their original ordering.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\nimport re\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('parent=\"Root/ReelPanel','parent=\"Root/BottomLeft/ReelPanel').replace('parent=\"Root/GasPanel','parent=\"Root/BottomLeft/GasPanel')\ndef hdr(name,body_re):\n    globa...
+
+The kill panel is still sizing to 69 instead of 64, so I'm adjusting the separation value in the kill vbox to force both panels to match the same minimum height around 64-72.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np=\"scenes/ui/odm_hud.tscn\"\ns=open(p).read()\ns=s.replace('custom_minimum_size = Vector2(0, 64)\\nlayout_mode = 1','custom_minimum_size = Vector2(0, 72)\\nlayout_mode = 1')\ns=s.replace('''[node name=\"HealthPanel\" type=\"PanelContainer...
+
+The spacing looks good now: the reel ends where the gas indicator begins with a small gap, both top panels are aligned in height and position, and the hint label lines up with the gas indicator's bottom edge. Time to validate the game scene and export the transcript.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && timeout 60 godot --headless --quit-after 60 res://scenes/world/forest_world.tscn 2>&1 | grep -iE \"error|parse\" | grep -v \"logs\\|editor_settings\" | head; python3 tools/export_cursor_transcript.py 99c6085f-cdd5-4ae0-af1c-b8b81de5ccea --title \"HUD visual ...
+
+I lined up the HUD elements. I checked the panel positions and sizes by loading the scene headless, but I couldn't render a screenshot here, so I haven't seen the result on screen. The world scene still loads with no errors.
+
+I found two things that were off.
+
+- **Top row:** the health panel was 64 px tall and the kill counter was 69 px. Both are now 72 px tall with their contents centred. They share the same top edge and the same 24 px margin from the left and right edges.
+- **Bottom left:** the reel panel overlapped the top of the gas panel by about 9 px. The gas panel had grown taller when I restyled it, and the reel panel was placed by fixed offsets. I put both panels in one stacked container (`BottomLeft` in `scenes/ui/odm_hud.tscn`), so there's now an 8 px gap between them and they stay aligned.
+
+The gas panel's bottom edge and the controls hint's bottom edge sit at the same height. The controls hint and the kill counter share the same right edge.
+
+One thing I left alone: the reel panel is narrower than the gas panel above it, so its right edge doesn't line up. I can stretch it to the same width if you want that.

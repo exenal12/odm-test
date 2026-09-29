@@ -209,6 +209,10 @@ func on_released(impulse: Vector3) -> void:
 	grab_progress.emit(false, 0.0, 0)
 	_grabber = null
 	velocity = impulse
+	# Stand back upright, keeping only the facing direction.
+	var flat := Vector3(global_basis.z.x, 0.0, global_basis.z.z)
+	var yaw := atan2(flat.x, flat.z) if flat.length() > 0.1 else rotation.y
+	rotation = Vector3(0.0, yaw, 0.0)
 	_was_on_floor = false
 	_current_anim = &""
 

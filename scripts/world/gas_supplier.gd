@@ -32,6 +32,8 @@ const WORLD_LAYER := 1
 ## Deck and trunk collider radii, set by the level so soldier climb routes clear the deck edge.
 var deck_radius: float = 5.0
 var trunk_radius: float = 3.0
+## Set by the level so each supplier gets a different look; -1 derives one from its position.
+var look_index: int = -1
 
 var _prompt: Label3D
 var _skeleton: Skeleton3D
@@ -151,6 +153,17 @@ func _build_model() -> void:
 	var body := _skeleton.find_child("HumanF_BodyMesh", false, false) as MeshInstance3D
 	if body != null:
 		body.set_surface_override_material(0, load(PALETTE_PATH) as Material)
+		var look := CharacterAppearance.new()
+		look.name = "Appearance"
+		look.auto_apply = false
+		add_child(look)
+		if look_index >= 0:
+			# Stepping colours by 3 keeps neighbours in the list from sharing a colour.
+			look.set_hair(look_index, look_index * 3 + 1)
+		else:
+			# The level is laid out from a fixed seed, so each supplier's spot, and so its look, repeats every run.
+			look.roll_hair(hash(Vector3i(global_position.round())) | 1)
+		look.apply(body)
 	_pose_kneeling()
 
 

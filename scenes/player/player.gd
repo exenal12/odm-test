@@ -121,6 +121,10 @@ var _standing_capsule_radius: float = 0.34814453
 var _standing_shape_y: float = 0.93436825
 var _hud: Node
 var _dead: bool = false
+## Titans read this to drop a dead player as a target.
+var alive: bool:
+	get:
+		return not _dead
 ## True while a titan is holding the player.
 var grabbed: bool = false
 var _grabber: Node3D
@@ -225,8 +229,12 @@ func _on_damaged(_amount: float, _source: Node) -> void:
 ## Stops player control: hooks released, swords and ODM input disabled.
 func _on_died() -> void:
 	_dead = true
+	var was_grabbed := grabbed
 	on_released(Vector3.ZERO)
 	odm.release_hooks()
+	if _is_sliding:
+		_finish_slide()
+	player_animation.play_death(was_grabbed or not is_on_floor())
 	odm.set_process_input(false)
 	sword_combat.set_process(false)
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
@@ -278,11 +286,14 @@ func _physics_process(delta: float) -> void:
 			odm.set_camera(_camera)
 
 	if _dead:
-		if not is_on_floor():
+		if is_on_floor():
+			velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
+			velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
+		else:
 			velocity += get_gravity() * gravity_scale * delta
-		velocity.x = move_toward(velocity.x, 0.0, 20.0 * delta)
-		velocity.z = move_toward(velocity.z, 0.0, 20.0 * delta)
 		move_and_slide()
+		if player_animation.update_death(delta, is_on_floor(), velocity) and player_audio:
+			player_audio.play_land()
 		return
 
 	if grabbed:
@@ -353,11 +364,7 @@ func _update_audio(delta: float) -> void:
 
 ## Returns the collider the player is standing on, or null in the air.
 func _get_floor_collider() -> Object:
-	for i in get_slide_collision_count():
-		var collision := get_slide_collision(i)
-		if collision.get_normal().y >= cos(floor_max_angle):
-			return collision.get_collider()
-	return null
+	return player_audio.get_floor_collider(self) if player_audio != null else null
 
 
 ## Starts a jump by applying vertical velocity, leaving crouch, and selecting
@@ -389,7 +396,7 @@ func _begin_land() -> void:
 	var wants_move := Input.get_vector("move_left", "move_right", "move_forward", "move_back") != Vector2.ZERO
 
 	if player_audio and player_audio.has_method("play_land"):
-		player_audio.play_land()
+		player_audio.play_land(_get_floor_collider())
 
 	# Keep momentum: no dedicated "land into run" clip in UAL, so blend straight to locomotion.
 	if horizontal_speed >= moving_land_speed_threshold or wants_move or (odm != null and odm.is_hooked()):

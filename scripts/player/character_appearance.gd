@@ -7,6 +7,8 @@ extends Node
 ## Generated meshes are cached, so characters sharing a look share one mesh.
 
 @export var model_path: NodePath = ^"../Model"
+## Off when a script builds the model itself and calls apply() once it exists.
+@export var auto_apply: bool = true
 @export var dress_outfit: bool = true
 @export var skin_tone: Color = Color(0.98, 0.84, 0.74)
 @export_group("Hair")
@@ -18,6 +20,31 @@ extends Node
 @export var hair_side_end: float = 1.43
 ## Rest-pose height of the fringe over the forehead; above 1.77 means no fringe.
 @export var fringe_height: float = 1.672
+@export var ponytail: bool = false
+@export var bun: bool = false
+## Replaces the hair settings above with a random preset and colour when the node is ready.
+@export var random_hair: bool = false
+## Seed for random_hair; 0 rolls a different look every run.
+@export var hair_seed: int = 0
+
+## Hair presets: [back end, side end, fringe height, ponytail, bun] in rest-pose metres.
+const HAIR_STYLES := {
+	"shoulder": [1.4, 1.43, 1.672, false, false],
+	"bob": [1.47, 1.49, 1.68, false, false],
+	"short": [1.53, 1.57, 1.705, false, false],
+	"long": [1.27, 1.4, 1.672, false, false],
+	"ponytail": [1.56, 1.59, 1.705, true, false],
+	"bun": [1.56, 1.59, 1.69, false, true],
+}
+const HAIR_COLORS := [
+	Color(0.9, 0.74, 0.44),
+	Color(0.78, 0.72, 0.6),
+	Color(0.62, 0.45, 0.28),
+	Color(0.42, 0.28, 0.16),
+	Color(0.24, 0.15, 0.09),
+	Color(0.08, 0.07, 0.07),
+	Color(0.55, 0.24, 0.12),
+]
 
 enum Garment { NONE, SKIN, SHIRT, JACKET, PANTS, BOOTS, STRAP }
 
@@ -77,20 +104,49 @@ const EDGE_SNAP := 0.008
 const HAIR_AXIS_Z := 0.035
 ## Just above the skull's top (1.766), so the crown ring already has width.
 const HAIR_TOP := 1.772
-const HAIR_BOTTOM := 1.34
+const HAIR_BOTTOM := 1.24
 const HAIR_STEP := 0.01
 const HAIR_COLUMNS := 64
 const HAIR_THICKNESS := 0.012
 ## Columns this far from the back (radians) frame the face and end at the fringe.
 const FACE_ANGLE := 2.23
+## Ponytail control points (rest pose), from where it leaves the back of the head.
+const PONYTAIL_PATH := [Vector3(0.0, 1.63, -0.095), Vector3(0.0, 1.6, -0.165),
+	Vector3(0.0, 1.5, -0.16), Vector3(0.0, 1.4, -0.14)]
+const BUN_CENTER := Vector3(0.0, 1.7, -0.09)
+const BUN_SIZE := Vector3(0.05, 0.043, 0.05)
 
 static var _mesh_cache: Dictionary = {}
 
 func _ready() -> void:
 	var model := get_node_or_null(model_path)
-	if model == null:
+	if model == null or not auto_apply:
 		return
+	if random_hair:
+		roll_hair(hair_seed)
 	apply(model.find_child("HumanF_BodyMesh", true, false) as MeshInstance3D)
+
+
+## Picks a hair preset and colour. The same non-zero seed always gives the same look.
+func roll_hair(seed_value: int = 0) -> void:
+	var rng := RandomNumberGenerator.new()
+	if seed_value == 0:
+		rng.randomize()
+	else:
+		rng.seed = seed_value
+	set_hair(rng.randi_range(0, HAIR_STYLES.size() - 1), rng.randi_range(0, HAIR_COLORS.size() - 1))
+
+
+## Uses one preset and colour by index (wrapping), for groups that should each look different.
+func set_hair(style_index: int, color_index: int) -> void:
+	var names := HAIR_STYLES.keys()
+	var style: Array = HAIR_STYLES[names[posmod(style_index, names.size())]]
+	hair_back_end = style[0]
+	hair_side_end = style[1]
+	fringe_height = style[2]
+	ponytail = style[3]
+	bun = style[4]
+	hair_color = HAIR_COLORS[posmod(color_index, HAIR_COLORS.size())]
 
 
 ## Adds the outfit and hair to a body mesh that is a child of its Skeleton3D.
@@ -112,8 +168,8 @@ func apply(body: MeshInstance3D) -> void:
 			_mesh_cache[key] = _outfit_mesh(body)
 		_add_skinned(skeleton, body, "Outfit", _mesh_cache[key])
 	if hair_enabled:
-		var key := "hair|%d|%s|%s|%s|%s" % [source_id, hair_color.to_html(), hair_back_end,
-			hair_side_end, fringe_height]
+		var key := "hair|%d|%s|%s|%s|%s|%s|%s" % [source_id, hair_color.to_html(), hair_back_end,
+			hair_side_end, fringe_height, ponytail, bun]
 		if not _mesh_cache.has(key):
 			_mesh_cache[key] = _hair_mesh(body, skeleton)
 		if _mesh_cache[key] != null:
@@ -642,6 +698,16 @@ func _build_hair(verts: PackedVector3Array, head_bind: int, bones_per_vertex: in
 			tris.append_array(PackedInt32Array([left[j], right[j + 1], right[j],
 				left[j], left[j + 1], right[j + 1]]))
 
+	if ponytail:
+		var path := _bezier(PONYTAIL_PATH, 10)
+		_append_tube(positions, normals, colors, tris, path, [0.036, 0.033, 0.028, 0.02, 0.009], hair_color)
+		var root: Vector3 = path[0]
+		var tie_dir: Vector3 = (path[1] - root).normalized()
+		_append_tube(positions, normals, colors, tris,
+			[root - tie_dir * 0.004, root + tie_dir * 0.018], [0.034, 0.032], Color(0.12, 0.09, 0.08))
+	if bun:
+		_append_blob(positions, normals, colors, tris, BUN_CENTER, BUN_SIZE, hair_color)
+
 	var bones := PackedInt32Array()
 	var weights := PackedFloat32Array()
 	for i in positions.size():
@@ -657,6 +723,69 @@ func _build_hair(verts: PackedVector3Array, head_bind: int, bones_per_vertex: in
 	arrays[Mesh.ARRAY_WEIGHTS] = weights
 	arrays[Mesh.ARRAY_INDEX] = tris
 	return arrays
+
+
+static func _bezier(control: Array, count: int) -> Array:
+	var points := []
+	for i in count:
+		var t := float(i) / (count - 1)
+		var u := 1.0 - t
+		points.append(control[0] * u * u * u + control[1] * 3.0 * u * u * t \
+			+ control[2] * 3.0 * u * t * t + control[3] * t * t * t)
+	return points
+
+
+## Tapered tube through points (in the head's YZ plane), capped at the far end.
+static func _append_tube(positions: PackedVector3Array, normals: PackedVector3Array,
+		colors: PackedColorArray, tris: PackedInt32Array, points: Array, radii: Array, color: Color) -> void:
+	var sides := 10
+	var first := positions.size()
+	for i in points.size():
+		var p: Vector3 = points[i]
+		var tangent: Vector3 = (points[mini(i + 1, points.size() - 1)] - points[maxi(i - 1, 0)]).normalized()
+		var other := tangent.cross(Vector3.RIGHT).normalized()
+		var t := float(i) / (points.size() - 1) * (radii.size() - 1)
+		var k := mini(int(t), radii.size() - 2)
+		var radius := lerpf(radii[k], radii[k + 1], t - k)
+		for s in sides:
+			var angle := TAU * s / sides
+			var n := Vector3.RIGHT * cos(angle) + other * sin(angle)
+			positions.append(p + n * radius)
+			normals.append(n)
+			colors.append(color * (0.92 + 0.12 * float(s % 3) / 2.0))
+	for i in points.size() - 1:
+		for s in sides:
+			var a := first + i * sides + s
+			var b := first + i * sides + (s + 1) % sides
+			tris.append_array(PackedInt32Array([a, b, b + sides, a, b + sides, a + sides]))
+	var tip := positions.size()
+	positions.append(points[points.size() - 1])
+	normals.append((points[points.size() - 1] - points[points.size() - 2]).normalized())
+	colors.append(color)
+	var last := first + (points.size() - 1) * sides
+	for s in sides:
+		tris.append_array(PackedInt32Array([last + s, last + (s + 1) % sides, tip]))
+
+
+## Ellipsoid of hair, e.g. a bun.
+static func _append_blob(positions: PackedVector3Array, normals: PackedVector3Array,
+		colors: PackedColorArray, tris: PackedInt32Array, center: Vector3, size: Vector3, color: Color) -> void:
+	var rings := 8
+	var sides := 12
+	var first := positions.size()
+	for r in rings + 1:
+		var lat := PI * float(r) / rings - PI * 0.5
+		for s in sides:
+			var lon := TAU * s / sides
+			var n := Vector3(cos(lat) * cos(lon), sin(lat), cos(lat) * sin(lon))
+			positions.append(center + n * size)
+			normals.append(n)
+			colors.append(color * (0.9 + 0.1 * float((r + s) % 3) / 2.0))
+	for r in rings:
+		for s in sides:
+			var a := first + r * sides + s
+			var b := first + r * sides + (s + 1) % sides
+			tris.append_array(PackedInt32Array([a, b + sides, b, a, a + sides, b + sides]))
 
 
 ## Angle around the head axis: 0 at the back of the head, +PI/2 on the character's left.

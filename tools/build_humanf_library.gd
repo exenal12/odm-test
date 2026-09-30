@@ -18,6 +18,7 @@ const CLIPS := {
 	"StrafeBackwardRight": FEMALE + "Movement/Run/HumanF@Run01_BackwardRight.fbx",
 	"AttackLeft": FEMALE + "Combat/1H/HumanF@Attack1H01_L.fbx",
 	"AttackRight": FEMALE + "Combat/1H/HumanF@Attack1H01_R.fbx",
+	"Death": FEMALE + "Combat/HumanF@Death01.fbx",
 }
 
 func _initialize() -> void:
@@ -75,12 +76,18 @@ func _initialize() -> void:
 		library.add_animation(StringName("HoldEnter" + side), _make_hold_clip(source_attack, side, false))
 		library.add_animation(StringName("HoldPose" + side), _make_hold_clip(source_attack, side, true))
 		library.remove_animation(source_name)
+	var death := library.get_animation(&"Death")
+	library.add_animation(&"DeathLimp", _make_still_clip(death, death.length))
 	model.free()
+	var uid := ResourceLoader.get_resource_uid(OUT)
 	var err := ResourceSaver.save(library, OUT)
 	if err != OK:
 		push_error("Could not save animation library: " + str(err))
 		quit(1)
 		return
+	# Scenes reference the library by UID, so keep it across rebuilds.
+	if uid != ResourceUID.INVALID_ID:
+		ResourceSaver.set_uid(OUT, uid)
 	print("SAVED ", OUT)
 	quit()
 
@@ -107,6 +114,25 @@ func _make_hold_clip(source: Animation, side: String, static_pose: bool) -> Anim
 				Animation.TYPE_ROTATION_3D: value = source.rotation_track_interpolate(t, sample)
 				Animation.TYPE_SCALE_3D: value = source.scale_track_interpolate(t, sample)
 			clip.track_insert_key(index, time, value)
+	return clip
+
+
+## One-frame looping clip holding every bone of source at the given time.
+func _make_still_clip(source: Animation, time: float) -> Animation:
+	var clip := Animation.new()
+	clip.length = 0.1
+	clip.loop_mode = Animation.LOOP_LINEAR
+	for t in source.get_track_count():
+		var kind := source.track_get_type(t)
+		var value: Variant
+		match kind:
+			Animation.TYPE_POSITION_3D: value = source.position_track_interpolate(t, time)
+			Animation.TYPE_ROTATION_3D: value = source.rotation_track_interpolate(t, time)
+			Animation.TYPE_SCALE_3D: value = source.scale_track_interpolate(t, time)
+			_: continue
+		var index := clip.add_track(kind)
+		clip.track_set_path(index, source.track_get_path(t))
+		clip.track_insert_key(index, 0.0, value)
 	return clip
 
 

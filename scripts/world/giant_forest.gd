@@ -177,11 +177,11 @@ func _build_supply_platforms() -> void:
 				break
 		if spaced:
 			chosen.append(tree)
-	for tree in chosen:
-		_build_supply_platform(tree)
+	for i in chosen.size():
+		_build_supply_platform(chosen[i], i)
 
 
-func _build_supply_platform(tree: Node3D) -> void:
+func _build_supply_platform(tree: Node3D, index: int) -> void:
 	var height: float = tree.get_meta("height")
 	var base_radius: float = tree.get_meta("radius")
 	var y := SUPPLY_PLATFORM_HEIGHT
@@ -194,7 +194,6 @@ func _build_supply_platform(tree: Node3D) -> void:
 	tree.add_child(platform)
 	var deck := _cylinder_body(platform, "Deck", Vector3.ZERO, DECK_THICKNESS, reach,
 		_wood_material, false)
-	deck.add_to_group("surface_wood")
 	var deck_mesh := (deck.get_child(0) as MeshInstance3D).mesh as CylinderMesh
 	deck_mesh.top_radius = reach
 	deck_mesh.radial_segments = 24
@@ -213,6 +212,7 @@ func _build_supply_platform(tree: Node3D) -> void:
 	supplier.name = "GasSupplier"
 	supplier.set("deck_radius", reach)
 	supplier.set("trunk_radius", base_radius)
+	supplier.set("look_index", index)
 	supplier.position = Vector3(cos(angle), 0.0, sin(angle)) * (trunk_radius + 2.0) \
 		+ Vector3.UP * DECK_THICKNESS * 0.5
 	# Face outward toward approaching players.
@@ -259,6 +259,7 @@ func _cylinder_body(parent: Node3D, name: String, pos: Vector3, height: float,
 	body.collision_mask = 0
 	if grappleable:
 		body.add_to_group("grappleable")
+	body.add_to_group("surface_wood")
 	var mesh := CylinderMesh.new()
 	mesh.height = height
 	mesh.top_radius = radius * 0.75

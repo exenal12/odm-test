@@ -7,6 +7,9 @@ signal died(soldier: Soldier)
 
 @export_group("Health")
 @export var max_health: float = 20.0
+## Seconds a body stays before sinking away.
+@export var corpse_time: float = 8.0
+@export var sink_duration: float = 2.0
 
 @export_group("Movement")
 @export var run_speed: float = 6.0
@@ -76,6 +79,7 @@ const REFLANK_TIMEOUT := 12.0
 @onready var odm: ODMController = $ODMController
 @onready var odm_gear: Node3D = $ODMGear
 @onready var animation: PlayerAnimation = $PlayerAnimation
+@onready var audio: Node = $PlayerAudio
 
 var target: Titan
 var health: float = 0.0
@@ -99,6 +103,8 @@ var _reflank_left: float = 0.0
 var _climbing: bool = false
 var _climb_time: float = 0.0
 var _climb_retry: float = 0.0
+var _was_on_floor: bool = true
+var _air_time: float = 0.0
 
 
 func _ready() -> void:
@@ -106,6 +112,7 @@ func _ready() -> void:
 	health = max_health
 	odm.ai_controlled = true
 	odm.setup(self, null, odm_gear)
+	audio.bind_odm(odm)
 	_agent = NavigationAgent3D.new()
 	_agent.radius = 0.5
 	_agent.height = 1.8
@@ -125,22 +132,30 @@ func take_damage(amount: float, _source: Node = null, _ignore_invulnerable: bool
 
 
 func _die() -> void:
+	var airborne := not is_on_floor() or odm.is_hooked() or _climbing
 	_climbing = false
 	alive = false
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
 	odm.release_hooks()
 	odm.ai_steer = Vector3.ZERO
+	animation.play_death(airborne)
 	died.emit(self)
-	get_tree().create_timer(2.0).timeout.connect(queue_free)
+	await get_tree().create_timer(corpse_time).timeout
+	var model := animation.model
+	var tween := create_tween()
+	tween.tween_property(model, "position:y", model.position.y - 0.6, sink_duration).set_ease(Tween.EASE_IN)
+	tween.tween_callback(queue_free)
 
 
 func _physics_process(delta: float) -> void:
 	if not alive:
-		velocity.x = move_toward(velocity.x, 0.0, ground_accel * delta)
-		velocity.z = move_toward(velocity.z, 0.0, ground_accel * delta)
+		if is_on_floor():
+			velocity.x = move_toward(velocity.x, 0.0, ground_accel * delta)
+			velocity.z = move_toward(velocity.z, 0.0, ground_accel * delta)
 		velocity += get_gravity() * delta
 		move_and_slide()
-		animation.play_base(&"Idle")
+		if animation.update_death(delta, is_on_floor(), velocity):
+			audio.play_land(get_last_slide_collision().get_collider() if get_slide_collision_count() > 0 else null)
 		return
 	_hook_timer = maxf(0.0, _hook_timer - delta)
 	_strike_timer = maxf(0.0, _strike_timer - delta)
@@ -175,6 +190,7 @@ func _physics_process(delta: float) -> void:
 		odm.physics_tick(delta)
 	move_and_slide()
 	_update_animation()
+	_update_audio(delta)
 
 
 func _target_valid() -> bool:
@@ -618,6 +634,18 @@ func _face(dir: Vector3, delta: float) -> void:
 	if dir.length_squared() < 0.16:
 		return
 	rotation.y = lerp_angle(rotation.y, atan2(dir.x, dir.z), turn_speed * delta)
+
+
+## Feeds the shared player audio system: footsteps, and a landing sound after airtime.
+func _update_audio(delta: float) -> void:
+	var on_floor := is_on_floor()
+	var moving := Vector2(velocity.x, velocity.z).length() > 0.5 and not odm.is_hooked()
+	var collider: Object = audio.get_floor_collider(self) if on_floor else null
+	audio.play_footsteps(delta, moving, false, on_floor, collider)
+	if on_floor and not _was_on_floor and _air_time > 0.25:
+		audio.play_land(collider)
+	_air_time = 0.0 if on_floor else _air_time + delta
+	_was_on_floor = on_floor
 
 
 func _update_animation() -> void:

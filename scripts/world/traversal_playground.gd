@@ -71,13 +71,15 @@ func _add_zone_markers() -> void:
 
 ## Adds the large non-grappleable floor beneath the entire course.
 func _build_ground() -> void:
-	_box(
+	var ground := _box(
 		Vector3(0, -0.5, 0),
 		Vector3(floor_size.x, 1.0, floor_size.y),
 		false,
 		Color(0.35, 0.37, 0.4),
 		"Ground"
 	)
+	ground.remove_from_group("surface_wood")
+	ground.add_to_group("surface_grass")
 
 
 ## Creates stepped rooftop platforms and a distant landing pad for jump tests.
@@ -232,6 +234,7 @@ func _box(
 	body.collision_mask = 0
 	if grappleable:
 		body.add_to_group("grappleable")
+	body.add_to_group("surface_wood")
 
 	var mesh_inst := MeshInstance3D.new()
 	var box_mesh := BoxMesh.new()

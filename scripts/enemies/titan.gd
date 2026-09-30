@@ -13,12 +13,13 @@ const NAPE_BONE := "B-neck"
 ## Nape offset from the neck bone in skeleton space (unscaled model units, -Z is the back).
 const NAPE_OFFSET := Vector3(0.0, 0.05, -0.13)
 ## Center of the red paint on the neck, in skeleton space (unscaled model units).
-const NAPE_PAINT_OFFSET := Vector3(0.0, 0.03, -0.05)
+const NAPE_PAINT_OFFSET := Vector3(0.0, 0.045, -0.05)
 const SKIN_SHADER := preload("res://scenes/enemies/titan_skin.gdshader")
 ## Hook and hit capsules: [from bone, to bone or skeleton-space offset, radius in model units].
 const SEGMENTS := [
 	["B-hips", "B-chest", 0.2], ["B-chest", "B-neck", 0.19],
-	["B-neck", "B-head", 0.08], ["B-head", Vector3(0.0, 0.2, 0.0), 0.12],
+	# TitanFeatures scales the head by 1.25, so its capsule is sized to match.
+	["B-neck", "B-head", 0.08], ["B-head", Vector3(0.0, 0.25, 0.0), 0.15],
 	["B-upperArm.L", "B-forearm.L", 0.06], ["B-forearm.L", "B-hand.L", 0.05],
 	["B-upperArm.R", "B-forearm.R", 0.06], ["B-forearm.R", "B-hand.R", 0.05],
 	["B-thigh.L", "B-shin.L", 0.1], ["B-shin.L", "B-foot.L", 0.07], ["B-foot.L", "B-toe.L", 0.05],
@@ -96,7 +97,12 @@ const SEGMENTS := [
 @export_group("Debug")
 @export var show_debug: bool = true
 
-@export var sink_duration: float = 1.5
+@export_group("Death")
+## Playback speed of the collapse; below 1 so the fall reads at titan scale.
+@export_range(0.1, 1.0, 0.01) var death_speed: float = 0.38
+## Seconds the body lies still before sinking.
+@export var corpse_time: float = 3.0
+@export var sink_duration: float = 4.0
 
 @onready var nape: Area3D = $Nape
 @onready var body_collider: CollisionShape3D = $CollisionShape3D
@@ -153,6 +159,7 @@ func _ready() -> void:
 	_skin_material = ShaderMaterial.new()
 	_skin_material.shader = SKIN_SHADER
 	flash_mesh.material_override = _skin_material
+	skeleton.add_child(TitanFeatures.new())
 	_neck_bone = skeleton.find_bone(NAPE_BONE)
 	_exclude.append(get_rid())
 	for def in SEGMENTS:
@@ -197,16 +204,21 @@ func _add_segment(from_bone: String, to: Variant, radius: float) -> void:
 func _process(_delta: float) -> void:
 	if _neck_bone < 0:
 		return
-	var neck := skeleton.get_bone_global_pose(_neck_bone).origin
+	var neck_pose := skeleton.get_bone_global_pose(_neck_bone)
+	var neck := neck_pose.origin
 	nape.global_position = skeleton.global_transform * (neck + NAPE_OFFSET)
+	var up := (skeleton.global_basis * neck_pose.basis.y).normalized()
+	var back := -global_basis.z
+	back = (back - up * back.dot(up)).normalized()
 	_skin_material.set_shader_parameter(&"nape_position", skeleton.global_transform * (neck + NAPE_PAINT_OFFSET))
+	_skin_material.set_shader_parameter(&"nape_up", up)
+	_skin_material.set_shader_parameter(&"nape_back", back)
 
 
 func _physics_process(delta: float) -> void:
 	_update_segments()
+	# The body collider is off once dead, so moving would drop it through the floor.
 	if state == State.DEAD:
-		_stop(delta)
-		_finish_move(delta)
 		return
 	_acquire_player()
 	_select_target()
@@ -723,13 +735,27 @@ func _die() -> void:
 	for seg in _segments:
 		(seg.body as AnimatableBody3D).collision_layer = 0
 	nape.set_deferred("monitorable", false)
-	animation_player.speed_scale = 1.0
-	animation_player.play(&"titan/Death", 0.15)
+	animation_player.speed_scale = death_speed
+	animation_player.play(&"titan/Death", 0.5)
 	died.emit(self)
+	create_tween().tween_method(func(v: float) -> void: _skin_material.set_shader_parameter(&"nape_strength", v), 1.0, 0.0, 1.5)
+	# Clip times where the knees, then the body, hit the ground.
+	_thud_after(0.12 / death_speed, 0.75)
+	_thud_after(0.4 / death_speed, 0.6)
 	await animation_player.animation_finished
+	await get_tree().create_timer(corpse_time).timeout
 	var tween := create_tween()
-	tween.tween_property(self, "position:y", position.y - 3.0, sink_duration)
+	tween.tween_property(self, "position:y", position.y - 4.0, sink_duration).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_SINE)
 	tween.tween_callback(queue_free)
+
+
+func _thud_after(delay: float, pitch: float) -> void:
+	await get_tree().create_timer(delay).timeout
+	if _step_streams.is_empty() or not is_inside_tree():
+		return
+	_step_player.stream = _step_streams[randi() % _step_streams.size()]
+	_step_player.pitch_scale = pitch
+	_step_player.play()
 
 
 func _flash_deflect() -> void:

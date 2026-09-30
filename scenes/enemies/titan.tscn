@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://df4pft38ya6b0" path="res://scripts/enemies/titan.gd" id="1_titan"]
 [ext_resource type="PackedScene" uid="uid://c7uu1fe0ho06l" path="res://assets/Human Melee Animations/Models/HumanM_Model.fbx" id="2_model"]
-[ext_resource type="AnimationLibrary" uid="uid://dq6ubjq3xhj7r" path="res://scenes/enemies/animations/humanm_titan.tres" id="3_clips"]
+[ext_resource type="AnimationLibrary" uid="uid://bh2f7bjlyqfmx" path="res://scenes/enemies/animations/humanm_titan.tres" id="3_clips"]
 
 [sub_resource type="CapsuleShape3D" id="body_shape"]
 radius = 2.2
@@ -14,9 +14,9 @@ size = Vector3(2.6, 2.4, 2.4)
 [node name="Titan" type="CharacterBody3D" unique_id=1736476940 groups=["titan"]]
 collision_layer = 0
 script = ExtResource("1_titan")
-hearing_range = 0.0
+hearing_range = 10.0
 hearing_gain = 0.5
-close_range = 0.0
+close_range = 2.0
 suspicious_threshold = 0.664
 knockback = 15.0
 knockback_up = 3.0

@@ -12,3 +12,4 @@ Update:
 - sfx/footstep_{carpet,concrete,grass,snow,wood}_*.ogg, sfx/impactWood_medium_*.ogg: Kenney Impact Sounds 1.0 (CC0)
 - odm/gas_hiss_loop.wav: procedurally generated (tools/generate_sfx.py)
 Removed: blade_swing_*, hook_retract_*, procedural concrete footsteps.
+- sfx/impact{Soft_heavy,Soft_medium,Wood_heavy,Plank_medium,Generic_light,Punch_medium}_*.ogg: Kenney Impact Sounds 1.0 (CC0), used for landings.

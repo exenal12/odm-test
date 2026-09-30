@@ -31,7 +31,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("7_refill_markers")
-show_distance = 40.0
+show_distance = 70.0
 
 [node name="BottomLeft" type="VBoxContainer" parent="Root" unique_id=573230066]
 layout_mode = 1

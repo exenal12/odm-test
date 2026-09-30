@@ -9,6 +9,8 @@
 [ext_resource type="AnimationLibrary" uid="uid://cy1gf11a4d152" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
+[ext_resource type="Script" path="res://scripts/player/character_appearance.gd" id="12_appearance"]
+[ext_resource type="PackedScene" path="res://scenes/player/player_audio.tscn" id="13_audio"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_soldier"]
 radius = 0.34814453
@@ -68,5 +70,11 @@ ai_controlled = true
 
 [node name="PlayerAnimation" type="Node" parent="." unique_id=196682099]
 script = ExtResource("8_animation")
+
+[node name="PlayerAudio" parent="." instance=ExtResource("13_audio")]
+
+[node name="Appearance" type="Node" parent="."]
+script = ExtResource("12_appearance")
+random_hair = true
 
 [editable path="Model"]

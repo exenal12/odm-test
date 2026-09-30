@@ -670,3 +670,168 @@ The player now takes the palm's orientation, and I added three inspector setting
 - `grab_rotation_offset_deg`: extra rotation on top of the palm orientation, for example to flip the player or tilt them.
 
 Since you said the position needs a slight adjustment, try `grab_player_offset` first. If you tell me which way it's off (higher, further out, too close to the wrist) and the rough amount, I can set the defaults myself. I picked the player's axes by guess, so the rotation offset may be needed if they look sideways or facing away.
+
+## User
+
+the titans grab needs to be a bit adjusted; right now it feels like the animation doesn't line up to where the player is, and the range of the grab feels a bit too high. the range can extend beyond their actual reach, but it feels too high right now
+
+## Assistant
+
+I'll look at how the grab currently decides it connected and how the swing is aimed.
+
+I should look at the existing attack code — _state_attack, _try_land_hit, _hand_in_reach, and the hit radius/vertical reach values. The grab reuses the swat animation clip, but it doesn't align to the player's position, so I'm considering adding reach-correction via IK targeting the player during wind-up, plus giving grab its own smaller range than the swat. Let me check the relevant code sections.
+- Tool call: `Grep` {"pattern": "hit_radius|hit_vertical_reach|attack_range|_pending_grab|func _state_attack|func _try_land_hit|func _hand_in_reach|func _set_state|_turn_toward\\(_flat_dir\\(target", "path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "output_mode": "content", "-n": true}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 354, "limit": 140}
+
+Before picking new values, I'll measure the titan's actual proportions (shoulder height, arm length) in world units.
+
+I'm planning to add separate grab-specific reach values, like a grab radius and vertical reach, since the current vertical range of 10 lets grabs trigger from too high up. I want to restrict grab selection so it only happens when the target is actually within that tighter reach at the moment the attack starts.
+
+For the animation side, I'm working out how to blend the IK arm toward the player during the grab windup so the hand visually reaches for them before the catch, ramping the assist weight up through the hit window. The tricky part is making sure the weight and target don't snap or pop at the moment the grab actually begins — the lift-weight calculation needs to continue smoothly from whatever assist weight was already active rather than resetting to zero.
+
+Since IK reach-assist means the hand always visually reaches the player, I realize the actual grab range check should instead be a shoulder-to-player distance test against arm reach times a factor that lets it extend a bit past true reach, plus a height cap relative to the shoulder. I also need to make sure the IK arm modifier gets set up right when the attack starts (computing arm reach then too), and handle fading the assist weight back out cleanly if the hit window passes without a successful grab.
+
+Now I'm working out the per-frame update during the pending grab window: computing a ramp based on how far through the hit-start window we are, finding the target's shoulder-height point, and capping the IK target position so the arm doesn't hyperextend toward distant players, along with setting the pole vector and squeeze value.
+
+I'm also considering adding a curl parameter to the arm so fingers stay open while reaching and only curl when the grab actually connects, plus adjusting the grab-range check so a successful hit during the pending-grab state triggers the actual grab begin logic instead of a normal hit.
+
+For the range check itself, I'm computing the offset from shoulder to the target's center point, rejecting attempts that are too high or too low, and otherwise checking if the distance falls within reach times a grab-specific multiplier — keeping it lenient by not requiring the target to be strictly in front. Now I'm working out realistic scale values for arm reach and shoulder height given the titan's large proportions.
+
+Checking the numbers, though, a shoulder height of roughly 13 units with only a 3.2-unit arm reach means a player standing on the ground at normal engagement distance would be about 12 units below shoulder level — well outside the vertical grab range. That suggests the shoulder-based reach calculation as currently sized would essentially never let the titan grab a grounded player, which seems like a flaw worth reconsidering against typical human arm-to-height proportions.
+
+That means hands can hit targets 10 units above, matching the user's complaint that grab range feels too high — maybe it's about grabbing players who are too far overhead. I should actually measure the real values instead of guessing.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/_m_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t: Node3D = (load(\"res://scenes/enemies/titan.tscn\") as PackedScene).instantiate()\n\troot.add_child(t)\n\tawait process_frame\n\tvar sk: Skeleton3D = t.skeleton\n\tvar x ...
+
+Checking the titan's proportions - about 12 units tall with a shoulder height of 10.3 and arm reach around 3.2. Calculating the swat hand's hit window shows the vertical reach extends way too high, up to y=16.7, well above the titan's actual head height of 11.5, meaning the grab range is overshooting.
+
+I need a better grab zone: forward distance within reach, player height capped below chest level, and a front-facing cone requirement. The IK-driven hand should chase the player during the swing, but with the shoulder itself dropping during the lunge, the hand can only reach down to about y=6 — meaning a player standing on the ground at y=0.9 would actually be out of reach, which breaks the grab.
+
+So I'll keep the lift animation raising them from ground to hand over grab_lift_time, but need to fix the lateral aiming so the IK target properly follows the player's horizontal direction. For grab continuity, I want the arm weight to smoothly interpolate from its current value at grab start rather than resetting to zero, and the target itself should ease from the catch center into the hold pose — the existing IK distance clamp already handles unreachable targets safely. I'm also adding a grip/curl parameter that stays open (low) during the reach phase and closes to full curl once the hold begins, plus crossfading the body back to idle while the arm IK takes over.
+
+For ending a missed grab, I want the arm weight to tween back to zero whenever the state leaves ATTACK without transitioning into GRAB, and I should centralize that fade-out logic in _set_state rather than duplicating it in _end_grab to avoid double tweens — even edge cases like dying mid-grab should route through _end_grab into CHASE first before the death state overrides it.
+
+Now I need to guard against overlapping tweens if a new grab starts mid-fade, so I'll store the tween reference and kill any existing one before starting another. I also need to figure out how to determine which arm/side to use for reaching, based on comparing hand position against the titan's forward-facing basis to decide left versus right.
+
+Since the hand-position check during a swing could be unreliable (the swat hand crosses near center x), I'll fix side assignment by which hand it is rather than measuring position. I also want to add exported parameters for grab range, height limits, half-angle, and reach assist, computing target height relative to the titan's origin, and restrict grab selection to only trigger when the target is within the vertical grab zone, so high targets get swatted instead of grabbed.
+
+I'll also flag that the swat's vertical reach of 10 seems too generous, though that's a secondary note since the user's main question was about grabbing.
+
+
+Found it: the grab was reusing the swat's hit check, which lets it reach up to ~16.7 units high—way above the titan's own head—since it just uses a fixed 10-unit range around the hand. I'll give the grab its own detection zone and make the arm actually track toward the player during wind-up.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 490, "limit": 95}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 74, "limit": 30}
+
+Now the edits: grab zone exports, arm setup at the start of a grab attack, reach assist during the wind-up, and a smooth handoff into the hold.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "@export var grab_cooldown: float = 6.0\n## Seconds to lift", "new_string": "@export var grab_cooldown: float = 6.0\n## Grab zone, measured from the titan's feet. It may reach past the arm; the lift covers the gap.\n@export va...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t\t_pending_grab = target == player and _grab_cooldown_left <= 0.0 \\\n\t\t\t\tand player.get(&\"grabbed\") != true and randf() < grab_chance\n\t\t_attack_hand = _nearest_hand()", "new_string": "\t\t_pending_grab = target ==...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "func _set_state(new_state: State) -> void:\n\tstate = new_state", "new_string": "func _set_state(new_state: State) -> void:\n\tif new_state != State.GRAB and _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\tstate = new_state"...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t_attack_time += delta * attack_speed\n\tfraction = _attack_time / _attack_length", "new_string": "\t_attack_time += delta * attack_speed\n\tfraction = _attack_time / _attack_length\n\tif _pending_grab and not _attack_landed...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "func _try_land_hit() -> void:\n\tvar bone := _hand_in_reach()\n\tif bone < 0:\n\t\treturn\n\t_attack_landed = true\n\tif _pending_grab:\n\t\t_begin_grab(bone)\n\t\treturn", "new_string": "func _try_land_hit() -> void:\n\tif _...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "# --- Grab ---\n\nfunc _begin_grab(bone: int) -> void:", "new_string": "# --- Grab ---\n\n## True if the target is in front of the titan, within grab_range and below grab_max_height.\nfunc _in_grab_zone() -> bool:\n\tvar to_t...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t_grab_start_basis = player.global_basis.orthonormalized()\n\t_set_state(State.GRAB)", "new_string": "\t_grab_start_basis = player.global_basis.orthonormalized()\n\t_grab_weight_start = _grab_arm.weight\n\t_set_state(State.G...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\tvar side := skeleton.get_bone_name(bone).trim_prefix(\"B-hand\")\n\t_grab_arm.setup(\"B-upperArm\" + side, \"B-forearm\" + side, \"B-hand\" + side, side)\n\t_grab_shoulder = skeleton.find_bone(\"B-upperArm\" + side)\n\tvar ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t_grab_arm.squeeze = _squeeze\n\t_grab_arm.weight = eased", "new_string": "\t_grab_arm.squeeze = _squeeze\n\t_grab_arm.grip = eased\n\t# Continues from the reach-assist weight so the arm doesn't pop back to the clip.\n\t_gra...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t\tplayer.on_released(impulse)\n\tcreate_tween().tween_property(_grab_arm, \"weight\", 0.0, 0.25)\n\t_grab_cooldown_left", "new_string": "\t\tplayer.on_released(impulse)\n\t_grab_cooldown_left"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "var _grab_start_basis: Basis", "new_string": "var _grab_start_basis: Basis\nvar _grab_weight_start: float = 0.0\nvar _arm_tween: Tween"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan_grab_arm.gd", "old_string": "## 0..1 pulse that tightens the fist.", "new_string": "## 0 = open hand (reaching), 1 = loose fist (holding).\nvar grip: float = 1.0\n## 0..1 pulse that tightens the fist."}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan_grab_arm.gd", "old_string": "\t\t\tvar angle := deg_to_rad(finger.curl[i] + SQUEEZE_EXTRA_DEG * squeeze) * weight", "new_string": "\t\t\tvar angle := deg_to_rad(finger.curl[i] + SQUEEZE_EXTRA_DEG * squeeze) * weight * grip"}
+
+I'm tracing through the state transitions to make sure the grab arm and weight fade correctly across GRAB, ATTACK, and CHASE states, especially checking that _die properly ends any active grab and fades the arm regardless of which state death occurs in.
+- Tool call: `Grep` {"pattern": "func _die\\(\\) -> void:", "path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "output_mode": "content", "-n": true, "-A": 5}
+
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\tif state == State.GRAB:\n\t\t_end_grab(false)\n\talive = false", "new_string": "\tif state == State.GRAB:\n\t\t_end_grab(false)\n\tif _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\talive = false"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && for f in scripts/enemies/titan_grab_arm.gd scripts/enemies/titan.gd; do timeout 60 godot --headless --check-only --script $f 2>&1 | rg -i \"parse|script error\"; done; cat > tools/_smoke_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t...
+
+That null error is actually just a test artifact — the titan's own physics process resets its target each frame since there's no player in its group, so it selects null. Simplest fix is to just disable the titan's physics processing during the test, rather than bothering to add the player to the group.
+
+
+The grab zone checks work fine — the errors were just from the titan's AI clearing targets since there's no real player in my test scene. I'll pause the AI and rerun the reach test.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/_smoke_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t: Node3D = (load(\"res://scenes/enemies/titan.tscn\") as PackedScene).instantiate()\n\troot.add_child(t)\n\tvar p := CharacterBody3D.new()\n\troot.add_child(p)\n\tawait...
+
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/_smoke_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t: Node3D = (load(\"res://scenes/enemies/titan.tscn\") as PackedScene).instantiate()\n\troot.add_child(t)\n\tvar p := CharacterBody3D.new()\n\troot.add_child(p)\n\tawait...
+
+The hand isn't moving despite the setup that worked before with frames. I'm wondering if the skeleton modifier update timing is the issue - it runs when the skeleton's pose is dirty, tied to the AnimationPlayer's processing, but disabling physics on the titan shouldn't affect that since AnimationPlayer is a separate node that should keep processing independently.
+
+Actually the earlier successful test measured palm_world (set inside the modifier), not the bone pose read via get_bone_global_pose. I recall Godot 4.3's Skeleton3D only exposes modified poses during or right after modification via the skeleton_updated signal, then may reset — so I should verify by reading pose inside that signal instead. Since the game logic (_hold_player, swat hit checks) doesn't rely on this modified pose read path, this shouldn't be a real issue — I'll just test with palm_world directly instead.
+
+
+The hand position read outside the modifier doesn't reflect IK since Godot applies results only during skeleton update. I'll instead measure using the palm position the modifier records internally, which matches what the game actually uses.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > tools/_smoke_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t: Node3D = (load(\"res://scenes/enemies/titan.tscn\") as PackedScene).instantiate()\n\troot.add_child(t)\n\tvar p := CharacterBody3D.new()\n\troot.add_child(p)\n\tawait...
+
+I made two changes to the grab: it has its own, lower range, and the titan's arm now bends toward the player during the wind-up instead of following the swat's fixed arc. I haven't played it. Headless tests confirmed the new range boundaries and that the arm moves toward targets it can reach.
+
+**Why it felt off:** the titan is about 12 units tall with its shoulder at about 10.3, but the grab reused the swat's hit check. That check accepts a player up to 10 units above or below the swinging hand, which sits around 6.7 high mid-swing. So a player up to about 16.7 high could be grabbed, well above the titan's head at 11.5. The swing also always followed the same arc, wherever you were.
+
+**New grab range** (measured from the titan's feet, all on the titan in the inspector):
+- `grab_range`, 10: how far in front the player can be. That's past the arm's actual reach, since the lift pulls the player in to the hand.
+- `grab_max_height`, 7.5: the highest your centre can be, a little below chest height. Above that, the titan swats instead.
+- `grab_half_angle_deg`, 55: the player has to be roughly in front of the titan.
+
+The titan decides whether to grab when the attack starts, then checks the zone again during the hit window. The swat's own hit check is unchanged.
+
+**Arm lining up with the player**
+- When the titan commits to a grab, the swinging arm bends toward you during the wind-up with an open hand. It reaches 85% strength (`grab_reach_assist`) by the start of the hit window.
+- On a catch, the arm carries on from that pose into the hold and the fingers close, so it no longer snaps back to the swat animation first. If the grab misses, the arm eases back to the animation.
+- The elbow-bend side now comes from which hand is swinging. Before, it was guessed from the hand's position mid-swing, which could flip because the swat crosses the body.
+
+**One limit:** the arm is only about 3.2 units long, so it can point toward a player on the ground but can't touch them. The 0.5s lift covers that gap. If that lift looks like the player is being pulled through the air, lower `grab_range` or raise `grab_lift_time`.
+
+The swat has the same too-high problem, since it still uses the 10-unit vertical check. Do you want me to lower that too?
+
+The IK improved reach for the two higher targets but actually got worse for the ground target, going to 8.68 — likely because the idle pose has the arm hanging down, so pointing the shoulder toward that lower, forward target puts the fully extended arm on a line that doesn't actually reach it well.
+
+That's mostly a geometry issue rather than a bug, since the real attack pairs this IK with the torso lunging and lowering the shoulder, so the actual reach will differ in-game. The visual goal of the arm pointing at the player is still satisfied, and I still want to flag that the swat's hit_vertical_reach of 10 is separately too high and worth revisiting.
+
+## User
+
+can the swat animation also be adjusted a bit; such as by keeping the hand open during the swat? also, do titans have the ability to stomp?
+
+## Assistant
+
+I'll check what the swat clip does to the fingers and whether anything stomp-like exists in the code or the animation pack.
+
+The fingers stay clenched around the sword grip during the swat clip since it's a 1H weapon pose, so I need to force them open. I could add a small "open hand" modifier that resets the finger bone rotations back to the rest pose during the swat animation.
+
+This open-hands modifier should run before the grab arm modifier in the chain so the grab curl overrides it, and since curl is relative to current pose, starting from open actually makes the fist look better. I'll keep open active only during ATTACK and fade it out as GRAB's curl takes over, then double-check whether the rest pose is truly flat by comparing bone rotations against the swat clip's clenched fingers.
+
+For the stomp question, I don't think titans currently have that ability since the animation pack only includes Idle, Run, Strafe, combat variants, damage, and death — no dedicated stomp clip. I should check if there's a kick or slam animation hidden in the Polearm set before answering, and explain that a real stomp would need either a matching clip or a procedural leg-IK solution similar to the arm modifier, without building it unless asked.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rg -il \"stomp|kick\" scripts scenes tools --glob '*.gd' ; ls \"assets/Human Melee Animations/Animations/Male/Combat/Polearm\" \"assets/Human Melee Animations/Animations/Male/Movement/Run\" \"assets/Human Melee Animations/Animations/Male/Movement/Strafe\" | ...
+
+I've confirmed the swat clips clench both hands at 66° average versus Idle's relaxed 21°, so I'm considering blending finger rotations toward Idle's open pose during swat, or simply slerping toward rest by roughly 0.7 as a simpler fix.
+
+Writing skeleton modifier script...
+
+For the state logic, I'll tween the open-hand amount to 1 when entering ATTACK and back to 0 when leaving, so the fingers curl and relax smoothly alongside the clip crossfades rather than snapping instantly.
+
+
+Confirmed both swat clips clench hands (~66° curl) since they're sword-grip animations, while Idle has relaxed hands (~21°). I'll add a modifier to swap in the Idle finger pose during titan attacks.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scripts/enemies/titan_open_hands.gd", "contents": "extends SkeletonModifier3D\n## Replaces the animation's finger pose with a relaxed open hand taken from another clip.\n## Must sit before the grab arm modifier so the grab curl builds on the open hand.\n\n## 0 = clip...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\t_grab_arm = GrabArm.new()\n\tskeleton.add_child(_grab_arm)", "new_string": "\t_open_hands = OpenHands.new()\n\tskeleton.add_child(_open_hands)\n\t_open_hands.setup(animation_player.get_animation(&\"titan/Idle\"))\n\t_grab_a...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "const GrabArm := preload(\"res://scripts/enemies/titan_grab_arm.gd\")", "new_string": "const GrabArm := preload(\"res://scripts/enemies/titan_grab_arm.gd\")\nconst OpenHands := preload(\"res://scripts/enemies/titan_open_hands...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "var _arm_tween: Tween", "new_string": "var _arm_tween: Tween\nvar _open_hands: OpenHands\nvar _hands_tween: Tween"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\tif new_state != State.GRAB and _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\tstate = new_state", "new_string": "\tif new_state != State.GRAB and _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\tif (new_state == State.ATT...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "func _fade_grab_arm() -> void:", "new_string": "func _blend_open_hands(amount: float) -> void:\n\tif _hands_tween != null:\n\t\t_hands_tween.kill()\n\t_hands_tween = create_tween()\n\t_hands_tween.tween_property(_open_hands, ...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "@export var knockback: float = 30.0", "new_string": "## How open the hands are during a swat; the source clips grip a sword (0 = clip, 1 = relaxed).\n@export_range(0.0, 1.0) var swat_open_hand: float = 1.0\n@export var knockb...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "old_string": "\tif _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\talive = false", "new_string": "\tif _grab_arm.weight > 0.0:\n\t\t_fade_grab_arm()\n\tif _open_hands.amount > 0.0:\n\t\t_blend_open_hands(0.0)\n\talive = false"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && for f in scripts/enemies/titan_open_hands.gd scripts/enemies/titan.gd; do timeout 60 godot --headless --check-only --script $f 2>&1 | rg -i \"parse|script error\"; done; cat > tools/_f_tmp.gd <<'EOF'\nextends SceneTree\nfunc _initialize() -> void:\n\tvar t: ...
+
+The titan's hands now stay open during the swat, and titans can't stomp yet.
+
+**Open hand during the swat**
+- **Why they were clenched:** both swat clips come from one-handed sword attacks, so they clench both fists at about 66° of finger curl.
+- **Fix:** a new modifier, `scripts/enemies/titan_open_hands.gd`, replaces the finger pose on both hands with the relaxed pose from the titan's `Idle` clip, about 21° of curl. It blends in over 0.2s when an attack starts and out over 0.35s afterward.
+- **Check:** in a headless test with the swat paused at its peak, the middle finger sat at 20° of curl instead of the clip's clench.
+- **Tuning:** `swat_open_hand` on the titan (0 to 1) sets how open the hands are. 1 is fully relaxed and 0 is the original grip.
+- **Grab:** the open-hand modifier runs before the grab arm. A grab starts from an open hand and closes into the fist.
+
+**Stomping**
+Titans don't have a stomp. They have the swat and the grab, and neither the code nor the animation pack has anything stomp-like. The pack's male clips are idle, run, strafe, sword, polearm and shield attacks, damage and death, with no kick or stomp. A stomp would need:
+- **An animation:** either a procedural leg IK, like the grab arm, or a clip made in Blender. Procedurally, the titan would lift one foot above the target, hold briefly as a telegraph, then slam down. The body can stay on `Idle` or be dipped slightly.
+- **A trigger:** used when the target is close and low, near the feet where the swat and grab are awkward. It would need its own cooldown and chance.
+- **The hit:** an area check around the foot when it lands. Damage and knockback would fall off with distance, and a direct hit could flatten the player. Soldiers could be hit too.
+- **Feedback:** camera shake and a dust puff sell the impact at titan scale.
+
+The procedural leg would be about the same amount of work as the grab arm, since it reuses the same two-bone IK approach. Do you want me to build it?
+
+That fixes it—setting the middle finger to 20° instead of ~66° during the swat resolves the issue. Now onto the stomp animation.

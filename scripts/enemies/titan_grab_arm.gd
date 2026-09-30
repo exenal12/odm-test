@@ -13,6 +13,8 @@ var pole_world: Vector3 = Vector3.DOWN
 var palm_world: Vector3
 ## Orientation a gripped object should take, in world space.
 var palm_basis: Basis = Basis()
+## 0 = open hand (reaching), 1 = loose fist (holding).
+var grip: float = 1.0
 ## 0..1 pulse that tightens the fist.
 var squeeze: float = 0.0
 
@@ -154,7 +156,7 @@ func _curl_fingers(point: Vector3) -> void:
 			var axis := along.cross(point - g.origin)
 			if axis.length_squared() < 0.00000001:
 				continue
-			var angle := deg_to_rad(finger.curl[i] + SQUEEZE_EXTRA_DEG * squeeze) * weight
+			var angle := deg_to_rad(finger.curl[i] + SQUEEZE_EXTRA_DEG * squeeze) * weight * grip
 			_set_global_basis(bones[i], Basis(axis.normalized(), angle) * g.basis, 1.0)
 
 

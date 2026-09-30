@@ -2878,3 +2878,259 @@ The air-death fall itself isn't sped up or slowed down, because it follows real 
 **Titans** (Death group on the titan): `death_speed` (0.38), `corpse_time` (3 s) and `sink_duration` (4 s), as before.
 
 The player and soldiers share `scenes/player/player_animation.gd`'s settings through their scenes. To change every soldier at once, set them on the `PlayerAnimation` node inside `soldier.tscn`.
+
+## User
+
+refine the forest; make it look more visually appealing; keep in mind the gas refill stations
+
+## Assistant
+
+I'll start by looking at how the forest is built and what it looks like now. Refill stations exist in `giant_forest`, so I'll check how that relates to `forest_world`.
+
+I need to figure out which forest has the gas stations - giant_forest seems to have the refill stations while forest_world has the player. Let me render giant_forest first to check.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && wc -l scripts/world/giant_forest.gd scripts/world/*.gd; rg -n \"giant_forest|instance=|script\" scenes/world/forest_world.tscn | head -20; rg -n \"^func |^const |^@export\" scripts/world/giant_forest.gd", "description": "Survey forest scripts and scenes"}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scenes/world/giant_forest.tscn"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scenes/world/forest_world.tscn", "limit": 45}
+
+I'm planning to load the forest_world scene and add my own camera set to current, then write a render script capturing several viewpoints—ground-level, mid-canopy, overview, and a refill platform.
+
+
+The forest world is a flat-background/fog/light setup wrapping a scene built from cylinders and low-poly spheres. I'll render baseline views next—ground level, mid-canopy, refill platform, and overview.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/.odm_render.gd", "contents": "extends SceneTree\n\nconst OUT := \"res://.odm_renders/\"\nvar _cam: Camera3D\nvar _frame := 0\nvar _shot := 0\nvar _level: Node\nvar _views := []\n\nfunc _initialize() -> void:\n\tDirAccess.make_dir_recursive_absolute(ProjectSettings.gl...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf .odm_renders && SHOT_PREFIX=before_ timeout 120 godot --path . --resolution 960x540 --script res://.odm_render.gd 2>&1 | rg \"SCRIPT ERROR\" -A3 | head; ls .odm_renders", "description": "Render baseline forest views", "block_until_ms": 130000, "requir...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/before_ground.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/before_midair.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/before_overview.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/before_platform.png"}
+
+I'm keeping the physics and collision shapes untouched and focusing purely on visual upgrades: warm sunlight, a procedural sky, ACES/AgX tonemapping, SSAO, glow, and subtle volumetric fog to break up the flat green look with richer atmospheric depth.
+
+For the trees, I'm designing a shared bark shader with vertical ridges and noise-based normal perturbation plus moss accents, bumping trunk segments up for smoother silhouettes while leaving the collider simple. Foliage gets reworked into clustered lumpy canopies using vertex-displaced spheres with a leaf shader for color variation, backlighting, and wind sway, replacing the plain ellipsoid blobs.
+
+Ground and undergrowth get a noise-based shader blending grass, dirt, moss, and leaf litter, with MultiMesh grass tufts and fern fronds using cheap crossed-quad alpha shaders for performance, plus volumetric god rays filtering sunlight through the canopy.
+
+For refill platforms, I'm adding landmark details -- plank decking, rope railings, warm lanterns, and a supply flag on a pole -- while keeping railings and flag poles visual-only with no collision so they don't interfere with landing players or refueling soldiers. I'm also considering upgrading fallen logs and rocks with noise-displaced shapes, and maybe mushrooms, while keeping scope reasonable.
+
+For performance, instead of stacking multiple canopy meshes per tree (which would balloon draw calls across ~171 trees), I'll use a single higher-subdivision sphere per canopy with vertex noise displacement to fake lumpiness. Grass and ferns will use MultiMesh instancing (~20k grass blades, ~1500 ferns) with wind animation and distance fade to keep everything in a handful of draw calls.
+
+Writing bark shader code...
+
+Adding shader logic for bark grooves...
+
+For moss, I'm placing it more heavily on upward-facing surfaces and near the trunk base using a height falloff plus noise. The wood deck planks get striped tinting and grain based on local x-position, and the leaf shader gets a vertex displacement lump effect using layered noise for organic bulging.
+
+Wind sway is added with a time-based sine offset, plus coloring that mixes dark and light tones with top brightening and a backlight term for subsurface scattering. I'm also adding high-frequency fragment noise for a dappled, leafy clumping texture, and starting on a ground shader that blends grass, dirt patches, and leaf litter speckles using world-space noise.
+
+Now I'm designing grass blade clumps as a small ArrayMesh with random orientation and height, shaded with a base-to-tip gradient and wind sway driven by UV, then scattering thousands of instances via MultiMesh split into an 8x8 grid of chunks with distance-based visibility culling for performance. I'm moving on to fern geometry, building curved frond shapes for each plant.
+
+Adding leaflet alpha pattern...
+
+For rocks I'm displacing a sphere via vertex noise in the shader with a mossy top texture, reusing the lumpiness parameter, and then turning to the overall environment setup with a procedural sky, filmic tonemapping, glow, SSAO, and volumetric fog for aerial haze and sun scattering.
+
+Fine-tuning the fog with warm golden-hour sun angle and anisotropy for god rays, noting rough performance costs for volumetric fog and SSAO. I also want to make sure the gas refill stations stay visible with lantern lights and banners, and that canopy foliage displacement doesn't intrude into the platform headroom clearance.
+
+I'm bumping the branch-clearing margin near platforms and confirming the ODM hooks only target colliders, not canopy meshes, so they're unaffected. I'm also checking that increasing trunk radial segments from 8 to 16 keeps the strut collider properly nested within the mesh faces, since the geometry still holds up at the tighter angle.
+
+For the darkness issue at ground level, I think the root shadows and low ambient light are causing the black blob effect, and adding sky-based ambient should fix it. Now I'm planning the shader files needed—bark, leaves, ground, grass, fern, rock, and planks—and deciding to organize them under a new shaders folder within the world scenes directory, then setting up the material variants and radial segment parameters for trunks versus branches in the forest generation script.
+
+For foliage variation, I want to use per-instance shader uniforms so each tree gets a unique seed for randomized appearance. I'm also planning undergrowth elements like grass and fern multimeshes, rocks with higher subdivision, and platform details like plank railings, lanterns, and a banner pole with a corps emblem flag, while deciding to skip fallen logs and mushrooms to keep scope manageable.
+
+Now I'm placing the flag, lantern, and supplier at specific angles around the trunk so they don't overlap, and deciding the railing is purely visual with no collision so I don't need gaps for landing access.
+
+Since players landing on posts might look odd, I'll switch to a low rope railing with 8 posts instead. I need to update the environment and lighting in forest_world.tscn, keep canopy sway subtle, and set up a shared noise include file with hash, value noise, and fbm functions for the shaders.
+
+
+The forest currently looks flat and monochrome — plain green lighting, blobby shapes, and barely visible refill discs. I'll fix this purely visually (leaving colliders/hooks untouched) by upgrading lighting, shaders, undergrowth, and landmark details for refill stations, starting with the shaders now.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/noise.gdshaderinc", "contents": "float hash31(vec3 p) {\n\tp = fract(p * 0.3183099 + 0.1);\n\tp *= 17.0;\n\treturn fract(p.x * p.y * p.z * (p.x + p.y + p.z));\n}\n\nfloat value_noise(vec3 x) {\n\tvec3 i = floor(x);\n\tvec3 f = fract(x);\n\tf = f ...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/bark.gdshader", "contents": "shader_type spatial;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 bark_color : source_color = vec3(0.3, 0.21, 0.14);\nuniform vec3 groove_color : source_color = vec3(0.1, 0.07, 0.05);\nun...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/leaves.gdshader", "contents": "shader_type spatial;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 leaf_dark : source_color = vec3(0.07, 0.16, 0.07);\nuniform vec3 leaf_light : source_color = vec3(0.3, 0.45, 0.14);\n//...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/ground.gdshader", "contents": "shader_type spatial;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 grass_color : source_color = vec3(0.2, 0.3, 0.11);\nuniform vec3 moss_color : source_color = vec3(0.13, 0.22, 0.08);\nu...
+
+Next: grass, ferns, rocks and deck planks.
+
+The canopy sphere's non-uniform scale should work fine since vertex displacement happens before the model scale is applied, keeping it proportional. Now I'm moving on to writing shaders for the grass, fern, rock, and planks.
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/grass.gdshader", "contents": "shader_type spatial;\nrender_mode cull_disabled;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 base_color : source_color = vec3(0.08, 0.14, 0.05);\nuniform vec3 tip_color : source_color =...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/fern.gdshader", "contents": "shader_type spatial;\nrender_mode cull_disabled;\n\nuniform vec3 stem_color : source_color = vec3(0.12, 0.2, 0.06);\nuniform vec3 leaf_color : source_color = vec3(0.24, 0.4, 0.11);\nuniform float leaflets = 14.0;\nuni...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/rock.gdshader", "contents": "shader_type spatial;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 rock_color : source_color = vec3(0.36, 0.36, 0.33);\nuniform vec3 moss_color : source_color = vec3(0.2, 0.31, 0.1);\nunif...
+- Tool call: `Write` {"path": "/home/bazzite/odm-test/scenes/world/shaders/planks.gdshader", "contents": "shader_type spatial;\n#include \"res://scenes/world/shaders/noise.gdshaderinc\"\n\nuniform vec3 wood_color : source_color = vec3(0.5, 0.34, 0.19);\nuniform vec3 wood_dark : source_color = vec3(0.24, 0.15, 0.08);\nun...
+
+Now `giant_forest.gd`: I'll switch it to the new shader materials and smoother meshes. The colliders stay exactly as they are.
+
+The grass shader uses per-vertex world origin for phase variation and multimesh colors for tint. Now I'm moving to giant_forest.gd, setting up preloaded bark shader constants and a helper function for building shader materials from parameter dictionaries.
+
+I'm reworking the trunk material typing to accept generic Material, and parameterizing cylinder segment counts—16 for trunks, 10 for branches and roots, 6 for struts—along with adjusting ridge counts and canopy foliage using a shared sphere mesh with randomized seeds and multiple leaf palette variants. I'm also tuning the canopy clearance margin by scaling node bounds by 1.35 to avoid overlap, and now sketching out the undergrowth grass system: dividing the forest into 24m chunks yielding roughly 144 chunks with 220 clumps each, where each clump has seven tapered two-segment grass blades built from small triangle fans.
+
+Now I'm estimating triangle counts for the grass system, figuring visibility range culling brings it down to a manageable ~90k triangles, and planning to skip grass placement near tree trunks. I'm also sketching ferns as arching multi-frond strips scattered in chunks with their own visibility range, plus sparse rocks using a shared low-poly sphere mesh with per-instance shader seeds for variation. For placing everything while avoiding tree trunks, I'm realizing a naive distance check against all 171 trees for every one of ~31k grass samples would be far too slow in GDScript, so I need a spatial hash grid to make tree-avoidance lookups fast.
+
+Actually I decide to skip tree avoidance altogether since blades and ferns inside trunks are hidden anyway, keeping generation simple and fast (well under 100ms for 31k transforms). I'm now planning the deck's plank texturing along local axes, then adding a rope railing around the platform with posts every 30 degrees (leaving a gap near the supplier's front), rope segments connecting the posts, a warm-toned hanging lantern with an omni light near the supplier, and a banner mounted on a horizontal pole jutting from the trunk for visibility from a distance.
+
+For the banner, I'm layering a dark green cloth quad with a transparent emblem texture quad in front, using simple StandardMaterial rather than a custom shader for the wave effect to keep things straightforward. I'm also confirming six omni lights won't hurt performance, and reorganizing the code so railing, lantern, and banner logic uses the supplier's angle after it's computed. Now I'm adjusting the environment scene's sun rotation to get slanting golden light shafts, working out the right Euler rotation values for the transform.
+
+Writing sky material config...
+
+Adding environment config...
+
+Setting ambient light source to sky mode, and configuring warm directional light with strong energy, volumetric fog contribution, and soft shadows with a generous max distance. I'll apply these edits directly in giant_forest.gd.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "const GasSupplierScript := preload(\"res://scripts/world/gas_supplier.gd\")\n\nvar _rng := RandomNumberGenerator.new()\nvar _bark_material: StandardMaterial3D\nvar _dark_bark_material: StandardMaterial3D\nvar _leaf_mater...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\tmaterial.roughness = 1.0\n\treturn material\n", "new_string": "\tmaterial.roughness = 1.0\n\treturn material\n\n\nfunc _shader_material(shader: Shader, params: Dictionary) -> ShaderMaterial:\n\tvar material := ShaderMa...
+
+Next: smoother cylinders, and canopies using the shared lumpy mesh with a per-tree seed.
+
+I'm using a single quad top for the ground mesh since the shader handles per-pixel detail fine. For the cylinder body, I'm adding a segments parameter defaulting to 10, then updating the trunk call to pass 16 segments along with the grappleable flag.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "func _cylinder_body(parent: Node3D, name: String, pos: Vector3, height: float,\n\t\tradius: float, material: Material, grappleable: bool) -> StaticBody3D:", "new_string": "func _cylinder_body(parent: Node3D, name: String...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\tmesh.radial_segments = 8\n\tvar visual := MeshInstance3D.new()\n\tvisual.mesh = mesh\n\tvisual.material_override = material\n\tbody.add_child(visual)\n\tvar shape := CylinderShape3D.new()", "new_string": "\tmesh.radial...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\t_cylinder_body(tree, \"Trunk\", Vector3(0, height * 0.5, 0), height, radius,\n\t\t_bark_material, true)", "new_string": "\t_cylinder_body(tree, \"Trunk\", Vector3(0, height * 0.5, 0), height, radius,\n\t\t_bark_materia...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "func _foliage(parent: Node3D, pos: Vector3, size: Vector3, palette_index: int) -> void:\n\tvar mesh := SphereMesh.new()\n\tmesh.radius = 1.0\n\tmesh.height = 2.0\n\tmesh.radial_segments = 8\n\tmesh.rings = 4\n\tvar visua...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\t\t\tvar half := node.scale\n\t\t\tif Vector2(node.position.x, node.position.z).length() - half.x <= reach + 1.0 \\", "new_string": "\t\t\t# Leaf lumps reach about 35% past the canopy's scale.\n\t\t\tvar half := node.sc...
+
+I need to be careful here—adding more RNG calls to the foliage generation shifts the entire random sequence downstream, which changes tree heights, positions, and consequently the grid layout and platform placements for the rest of the scene.
+
+To avoid disrupting existing layout familiarity, the fix is to introduce a separate `_detail_rng` dedicated to visual variation, keeping it independent from the RNG driving structural placement.
+
+
+Those extra random draws in `_foliage` were shifting the shared random sequence and rearranging the whole forest, including the refill platform placements. I'll give visual variation its own separate random generator so the layout stays consistent.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np='scripts/world/giant_forest.gd'\ns=open(p).read()\nold_f=s[s.index('func _foliage('):s.index('func _build_undergrowth')]\nnew_f=old_f.replace('_rng.','_look_rng.')\ns=s.replace(old_f,new_f)\ns=s.replace('var _rng := RandomNumberGenerator...
+
+Now I'll replace the undergrowth: chunked grass and ferns, plus lumpy mossy rocks.
+
+The undergrowth builder was the last spot still using the old random source for ferns and rocks, since the rocks are purely visual and nothing gameplay-relevant follows it. I'm switching it over to use the look-based RNG instead, then writing the replacement function along with the mesh builders.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 - <<'EOF'\np='scripts/world/giant_forest.gd'\ns=open(p).read()\na=s.index('func _build_undergrowth')\nb=s.index('## Bakes a titan-sized navmesh')\nnew='''func _build_undergrowth() -> void:\n\tvar details := Node3D.new()\n\tdetails.name = \"Undergrowt...
+
+The rock's extra_cull_margin should stay small too, that's fine. For the platform, I need to wire up the deck material to the _deck_material field and add railing/lantern/banner support, updating _build_supply_platform once the supplier addition is in place.
+
+
+I'll add the refill platforms next—plank deck, rope railing open on the supplier's side, a lantern, and a Survey Corps banner—keeping everything purely visual so it doesn't interfere with landings or refueling.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\tvar deck := _cylinder_body(platform, \"Deck\", Vector3.ZERO, DECK_THICKNESS, reach,\n\t\t_wood_material, false)", "new_string": "\tvar deck := _cylinder_body(platform, \"Deck\", Vector3.ZERO, DECK_THICKNESS, reach,\n\t...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\tsupplier.rotation.y = atan2(cos(angle), sin(angle))\n\tplatform.add_child(supplier)", "new_string": "\tsupplier.rotation.y = atan2(cos(angle), sin(angle))\n\tplatform.add_child(supplier)\n\t_dress_platform(platform, re...
+
+I'm working out the orientation math so the banner's normal points along the tangent direction, making it stick out like a flag from the trunk and stay visible from both sides, with the emblem offset accordingly. Now I'm considering how to model the rope's sag.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\t\t\t_visual_segment(dressing, from, to + Vector3.DOWN * 0.05, 0.022, rope_material)", "new_string": "\t\t\t_visual_segment(dressing, from, to, 0.022, rope_material)"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scenes/world/forest_world.tscn", "offset": 14, "limit": 28}
+
+Before changing the environment, I'll check whether the map switcher reuses this `WorldEnvironment` for other maps.
+
+I should check whether the map switcher swaps environments in a way that could break other maps like the traversal playground, so I want to peek at map_switcher.gd for that logic.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/world/map_switcher.gd"}
+
+Each map has its own scene, so changing this environment only affects the forest. Updating the sky, fog, light shafts and sun:
+
+These are separate, safe scenes, just adjusting environment and lighting.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scenes/world/forest_world.tscn", "old_string": "[sub_resource type=\"Environment\" id=\"Environment_forest\"]\nbackground_mode = 1\nbackground_color = Color(0.23, 0.34, 0.28, 1)\nambient_light_source = 2\nambient_light_color = Color(0.35, 0.44, 0.36, 1)\nambient_ligh...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scenes/world/forest_world.tscn", "old_string": "transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 8, 0)\nshadow_enabled = true\nlight_color = Color(0.78, 0.91, 0.72, 1)\nlight_energy = 0.8", "new_string": "tra...
+
+Rendering the same views as before:
+
+I'm checking that my rotation matrix's light direction points downward and verifying the basis vectors are orthonormal by computing their lengths.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && timeout 120 godot --headless --path . --editor --quit 2>&1 | rg \"SCRIPT ERROR|Parse Error|SHADER ERROR\" -A3 | head; SHOT_PREFIX=after_ timeout 120 godot --path . --resolution 960x540 --script res://.odm_render.gd 2>&1 | rg \"SCRIPT ERROR|SHADER ERROR|Parse...
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_ground.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_midair.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_overview.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_platform.png"}
+
+Big improvement, especially the platform. Some issues remain: the foreground grass clumps look oversized at eye-level and too dark against the flat ground, so I should cap the grass scale down to around 1.1. I'm also noticing the midair trunks look off and need a closer look.
+
+Trunks in shadow are too dark from low ambient or SSAO, though the bark ridges look good. There's a visible horizon band where the ground plane ends abruptly at 142m, which the fog isn't hiding well enough—I should bump fog density up to around 0.008 to mask that edge. I also spot some orange striping artifacts on distant trunks, likely a seam from the angular wobble function being discontinuous at ±π even though the main ridge pattern is continuous—minor issue since it just looks like sunlit patches. Overall the canopy in the overview shot looks solid.
+
+I'm switching the wobble noise to sample from sine/cosine of the angle instead of the raw angle itself, which should eliminate that seam discontinuity. I'll also darken the ground color at grazing angles for realism, and confirm the lantern box emissive tint reads fine rather than looking like a plain white cube.
+
+After applying these tweaks I want to render again and also get a rough performance check—since this isn't running headless, I can measure frames per second at the ground view by printing Engine.get_frames_per_second() at the end rather than building anything more elaborate.
+
+
+Solid progress on the platform — the deck, railing, lantern, and banner all read well. I'll now fix the visible seams: the hard horizon band from the flat map edge, overly dark shadowed trunks, the seam on the bark ridges, and grass that's too tall up close.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scenes/world/shaders/bark.gdshader", "old_string": "\tfloat wobble = fbm(vec3(angle * 2.0, local_pos.y * 0.25, 0.0)) * 3.0;", "new_string": "\t// Sampled on a circle so the pattern has no seam where the angle wraps.\n\tfloat wobble = fbm(vec3(sin(angle) * 1.5, local_...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && sed -i 's/^fog_density = 0.005$/fog_density = 0.0085/; s/^ambient_light_energy = 0.8$/ambient_light_energy = 1.05/' scenes/world/forest_world.tscn && sed -i 's/GRASS_PER_CHUNK, Vector2(0.7, 1.4)/GRASS_PER_CHUNK, Vector2(0.6, 1.1)/' scripts/world/giant_forest...
+
+I'll also have the render script report frame rate from a mid-air view, as a rough cost check.
+
+I'm adding an FPS measurement step to the render script — after the shots complete, I'll hold the view for another 150 frames and print the engine's FPS, just reporting the absolute number rather than trying to diff against a prior baseline.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/.odm_render.gd", "old_string": "\tif _frame % 4 == 0:\n\t\tvar v: Array = _views[_shot]", "new_string": "\tif _shot >= _views.size():\n\t\tif _fps_start == 0:\n\t\t\t_fps_start = _frame\n\t\t\t_cam.look_at_from_position(Vector3(10, 18, 30), Vector3(-20, 14, -30))\n\t...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/.odm_render.gd", "old_string": "\t\t_shot += 1\n\treturn _shot >= _views.size()", "new_string": "\t\t_shot += 1\n\treturn false"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/.odm_render.gd", "old_string": "var _views := []", "new_string": "var _views := []\nvar _fps_start := 0"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && SHOT_PREFIX=after_ timeout 120 godot --path . --resolution 1600x900 --script res://.odm_render.gd 2>&1 | rg \"FPS|SCRIPT ERROR|SHADER ERROR\" -A3 | head", "description": "Re-render and measure FPS", "block_until_ms": 130000, "required_permissions": ["all"]}
+
+It holds 120 FPS at 1600×900, which looks like the vsync cap, so there's headroom. Checking the updated views:
+
+That 120 figure is likely just the vsync cap, so that checks out. Let me look at the new images now.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_midair.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_ground.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_overview.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_platform.png"}
+
+The canopy and platform look good now, but there's a flat olive wall along the horizon, visible in both the overview and mid-air shots. Probably the map boundary, so I'll check `map_bounds.gd`.
+
+There's still a dark olive band along the horizon that looks like a wall—possibly the map boundary walls from map_bounds.gd rendering visibly above the canopy. I want to check that script to see if the boundary mesh is set to visible.
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/world/map_bounds.gd"}
+
+I'm realizing the dark band beyond the ground box edge is actually the sky's lower hemisphere showing through, since it uses a dark olive ground color that doesn't match the fog/forest palette. I should adjust the sky's ground colors to blend with the scene instead.
+
+My fix is to add a cheap outer ring of decorative trees—non-colliding trunk+canopy blobs placed 150-230m out, roughly 120 of them—so the boundary reads as more forest fading into fog rather than an abrupt edge. I'll use MultiMesh for both trunks and canopies to keep draw cost low, accepting that instance-uniform seeding won't vary per-instance but randomized rotation will still give some visual variety.
+
+
+Found that those walls are collision-only, and the visible band is just the sky's dark lower half peeking past the ground edge. I'll match the sky's ground colors to the haze and add a ring of cheap, non-colliding silhouette trees outside the boundary so the forest appears to continue into the fog.
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "\t_build_undergrowth()\n\t_build_navigation()", "new_string": "\t_build_undergrowth()\n\t_build_backdrop()\n\t_build_navigation()"}
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scripts/world/giant_forest.gd", "old_string": "## One MultiMesh of randomly placed, rotated and tinted copies within a chunk.", "new_string": "## Non-colliding trees and ground beyond the boundary walls, so the forest fades\n## into the fog instead of ending at a vis...
+- Tool call: `StrReplace` {"path": "/home/bazzite/odm-test/scenes/world/forest_world.tscn", "old_string": "ground_bottom_color = Color(0.1, 0.13, 0.08, 1)\nground_horizon_color = Color(0.5, 0.56, 0.45, 1)", "new_string": "ground_bottom_color = Color(0.4, 0.48, 0.42, 1)\nground_horizon_color = Color(0.55, 0.63, 0.56, 1)"}
+
+The bark shader's ridge calculation using local position should scale fine with the instance transform, and leaf multimesh instances get proper transforms too. But I'm noticing the outer floor plane sits just below the main floor's top surface, which could cause z-fighting between them.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && SHOT_PREFIX=after_ timeout 120 godot --path . --resolution 1024x576 --script res://.odm_render.gd 2>&1 | rg \"FPS|SCRIPT ERROR|SHADER ERROR\" -A3 | head", "description": "Re-render with backdrop", "block_until_ms": 130000, "required_permissions": ["all"]}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_overview.png"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/.odm_renders/after_midair.png"}
+
+The forest now fades into the fog, with no hard edge. Last checks: confirm the six refill stations are exactly where they were (same positions, same NPC looks), smoke-test both levels, then clean up.
+
+The edge blending looks good now. Let me run final checks — confirming the refill system still works with suppliers present and soldier refuel radius unaffected, then verify the six supplier positions remain unchanged from before by running a quick probe before doing cleanup and writing the transcript.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && cat > .probe.gd <<'EOF'\nextends SceneTree\nvar _frame := 0\nfunc _process(_delta: float) -> bool:\n\t_frame += 1\n\tif _frame == 1:\n\t\troot.add_child(load(\"res://scenes/world/giant_forest.tscn\").instantiate())\n\tif _frame < 5:\n\t\treturn false\n\tfor ...
+
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && rm -rf /tmp/odm_renders_forest && mv .odm_renders /tmp/odm_renders_forest && rm -f .odm_render.gd .odm_render.gd.uid && python3 tools/export_cursor_transcript.py fda94d69-2811-4281-9127-3f1ffd97b4de --title \"ODM gear model refinement\"", "description": "Cle...
+
+The forest now has a warm sun, light shafts, a real sky, textured bark, leafy canopies, grass and ferns. The refill stations double as landmarks. The changes are visual only: tree layout, colliders, hook targets and titan navigation are unchanged. The six refill stations are at the same positions with the same NPC looks, and all three levels load without errors. I checked all of this in off-screen renders, not in actual play.
+
+**Refill station, before and after**
+
+![Refill platform before](/tmp/odm_renders_forest/before_platform.png)
+
+![Refill platform after](/tmp/odm_renders_forest/after_platform.png)
+
+**Canopy from above, before and after**
+
+![Overview before](/tmp/odm_renders_forest/before_overview.png)
+
+![Overview after](/tmp/odm_renders_forest/after_overview.png)
+
+**What changed**
+- **Lighting** (in `forest_world.tscn`):
+  - The flat green background and green light are replaced by a sky and a warm, low sun.
+  - Volumetric fog lets sunlight make shafts through the canopy.
+  - There's lighter blue-green haze with depth, ambient occlusion, a little glow, and filmic tonemapping.
+- **Trees:**
+  - Trunks are smoother (18 sides instead of 8).
+  - The new bark shader has vertical grooves, with moss on upward faces and around the trunk bases.
+  - Canopies are lumpy, leafy clusters that sway slightly, with light tops and dark gaps between the leaves.
+- **Ground:**
+  - The floor shader varies between moss, grass, dirt patches and fallen-leaf specks.
+  - The squashed-sphere ferns are replaced by swaying grass tufts and ferns with individual leaflets.
+  - Rocks are lumpy, with moss on top.
+- **Map edge:** past the invisible boundary walls there's a ring of cheap, non-colliding silhouette trees and extra ground, so the forest fades into fog instead of ending at a hard line.
+- **Refill stations:**
+  - The decks are laid with planks.
+  - A rope railing runs around each deck, leaving an opening in front of the supplier.
+  - A glowing lantern lights each deck warmly.
+  - A green Survey Corps banner hangs from the trunk, so you can spot stations from a distance.
+
+  None of these extras collide with anything, so landing, hooking and refueling work exactly as before. Canopies near the decks are cleared a little more widely to account for the new lumpier shapes.
+
+**Performance:** it held 120 FPS at 1600×900 on this machine, which looks like the vsync cap. The added costs are volumetric fog, ambient occlusion, and the grass and ferns. The grass and ferns are drawn in 24 m chunks that fade out at 55 m (grass) and 110 m (ferns), and cast no shadows. If you need to save frame time on weaker hardware, turn off `volumetric_fog_enabled` in the forest's environment first.
+
+**Where to tune it:**
+- The shaders are in `scenes/world/shaders/`; colors are exposed as shader parameters.
+- Density and draw distance of the undergrowth are the constants at the top of `giant_forest.gd`: `GRASS_PER_CHUNK`, `FERNS_PER_CHUNK`, `GRASS_VISIBLE_RANGE` and `FERN_VISIBLE_RANGE`.
+- Mood, fog and sun are in the `WorldEnvironment` and `DirectionalLight3D` of `forest_world.tscn`.
+
+Trunk sides facing away from the sun are still quite dark mid-air. If that bothers you, the next adjustment is a bit more ambient light or a weaker ambient-occlusion setting.
+
+I should note that the tree trunks remain somewhat dark even from the aerial view, then wrap up with the before/after comparison images.

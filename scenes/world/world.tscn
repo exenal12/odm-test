@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/odm_hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://scripts/world/map_switcher.gd" id="7_switch"]
 
+[ext_resource type="Script" path="res://scripts/ui/pause_menu.gd" id="99_pause"]
 [sub_resource type="Resource" id="Resource_bq33v"]
 script = ExtResource("4_t5ptc")
 duration = 0.3
@@ -91,3 +92,6 @@ align_position_with_view = Callable()
 align_rotation_with_view = Callable()
 
 [node name="ODMHUD" parent="." unique_id=532337543 instance=ExtResource("6_hud")]
+
+[node name="PauseMenu" type="CanvasLayer" parent="."]
+script = ExtResource("99_pause")

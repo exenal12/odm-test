@@ -15,6 +15,7 @@ OUT = ROOT / "prompts" / "Cursor"
 
 
 TITLES = {
+    "19fc615a-34b4-4631-9ac4-fe2f2b163026": "Procedural map design",
     "fda94d69-2811-4281-9127-3f1ffd97b4de": "ODM gear model refinement",
     "4739e573-4cfa-4dbd-acf8-4c15e8cc7fce": "Tree platform gas suppliers",
     "99c6085f-cdd5-4ae0-af1c-b8b81de5ccea": "HUD visual restyle",

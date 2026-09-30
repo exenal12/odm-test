@@ -1,6 +1,0 @@
-[gd_scene format=3 uid="uid://7ynmyu46emb5"]
-
-[ext_resource type="Script" path="res://scripts/world/traversal_playground.gd" id="1_pg"]
-
-[node name="TraversalPlayground" type="Node3D"]
-script = ExtResource("1_pg")

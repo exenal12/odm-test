@@ -25,8 +25,10 @@ extends CharacterBody3D
 @export_range(0.0, 100.0, 0.5, "or_greater") var ground_acceleration: float = 28.0
 ## Rate used to slow horizontal movement on the ground.
 @export_range(0.0, 100.0, 0.5, "or_greater") var ground_deceleration: float = 35.0
-## Air acceleration and braking control steering after a jump.
-@export_range(0.0, 100.0, 0.5, "or_greater") var air_acceleration: float = 10.0
+## Horizontal steering acceleration while airborne (ODM-style wish accel).
+@export_range(0.0, 100.0, 0.5, "or_greater") var air_acceleration: float = 18.0
+## Soft speed ceiling for airborne steering; existing momentum above this is kept.
+@export_range(0.0, 100.0, 0.5, "or_greater") var air_steer_max_speed: float = 8.0
 ## Light horizontal drag applied while airborne without movement input.
 @export_range(0.0, 100.0, 0.1, "or_greater") var air_deceleration: float = 0.6
 ## Releasing jump while rising multiplies vertical velocity by this value.
@@ -35,6 +37,11 @@ extends CharacterBody3D
 @export var turn_speed: float = 12.0
 ## Mouse look sensitivity applied to third-person camera rotation.
 @export var mouse_sensitivity: float = 0.08
+## Middle-mouse distract command: aim cone, titan range, soldier range, and effect time.
+@export_range(1.0, 30.0) var distract_aim_angle_deg: float = 8.0
+@export var distract_max_distance: float = 150.0
+@export var distract_soldier_range: float = 80.0
+@export var distract_duration: float = 12.0
 ## Minimum pitch for shoulder cameras.
 @export var min_pitch: float = -60.0
 ## Maximum pitch for shoulder cameras.
@@ -42,7 +49,7 @@ extends CharacterBody3D
 ## Minimum pitch for the overhead camera.
 @export var overhead_min_pitch: float = -85.0
 ## Maximum pitch for the overhead camera.
-@export var overhead_max_pitch: float = 10.0
+@export var overhead_max_pitch: float = 55.0
 ## Priority assigned to whichever PhantomCamera is currently active.
 @export var active_pcam_priority: int = 10
 ## Cycle order: right shoulder → left shoulder → overhead.
@@ -135,6 +142,12 @@ const CROUCH_HEIGHT_SCALE: float = 0.6
 
 ## Initializes player state, input bindings, animation libraries, ODM wiring,
 ## and the deferred camera lookup used by the third-person controller.
+var _odm_base_reel: float = -1.0
+var _odm_base_boost_impulse: float = -1.0
+var _odm_base_boost_max: float = -1.0
+var _odm_base_grapple: float = -1.0
+
+
 func _ready() -> void:
 	add_to_group("player")
 	_ensure_input_actions()
@@ -143,6 +156,8 @@ func _ready() -> void:
 	_setup_odm()
 	health.damaged.connect(_on_damaged)
 	health.died.connect(_on_died)
+	GameSettings.settings_changed.connect(_apply_game_settings)
+	_apply_game_settings()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Camera / pcam are later siblings in world.tscn; resolve after the tree is ready.
 	call_deferred("_resolve_camera_nodes")
@@ -158,6 +173,34 @@ func _setup_odm() -> void:
 	if player_audio and player_audio.has_method("bind_odm"):
 		player_audio.bind_odm(odm)
 	call_deferred("_bind_hud")
+
+
+## Pushes session GameSettings into health and ODM (speed scale + gas).
+func _apply_game_settings() -> void:
+	if health != null:
+		var ratio := 1.0 if health.max_health <= 0.0 else health.health / health.max_health
+		health.max_health = GameSettings.player_max_health
+		if not health.dead:
+			health.health = clampf(ratio * health.max_health, 0.0, health.max_health)
+			health.health_changed.emit(health.health, health.max_health)
+	if odm == null:
+		return
+	if _odm_base_reel < 0.0:
+		_odm_base_reel = odm.reel_speed
+		_odm_base_boost_impulse = odm.boost_impulse
+		_odm_base_boost_max = odm.boost_max_speed
+		_odm_base_grapple = odm.max_grapple_speed
+	var scale := GameSettings.odm_speed_scale
+	odm.reel_speed = _odm_base_reel * scale
+	odm.boost_impulse = _odm_base_boost_impulse * scale
+	odm.boost_max_speed = _odm_base_boost_max * scale
+	odm.max_grapple_speed = _odm_base_grapple * scale
+	var gas_ratio := 1.0 if odm.gas_max <= 0.0 else odm.gas / odm.gas_max
+	odm.gas_max = GameSettings.gas_max
+	odm.gas_boost_drain = GameSettings.gas_boost_drain
+	odm.gas_reel_drain = GameSettings.gas_reel_drain
+	odm.gas = clampf(gas_ratio * odm.gas_max, 0.0, odm.gas_max)
+	odm.gas_changed.emit(odm.gas, odm.gas_max)
 
 
 ## Finds the HUD instance and gives it the ODM controller so it can display
@@ -231,7 +274,7 @@ func _on_died() -> void:
 	_dead = true
 	var was_grabbed := grabbed
 	on_released(Vector3.ZERO)
-	odm.release_hooks()
+	odm.release_hooks(true)
 	if _is_sliding:
 		_finish_slide()
 	player_animation.play_death(was_grabbed or not is_on_floor())
@@ -239,6 +282,45 @@ func _on_died() -> void:
 	sword_combat.set_process(false)
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+## Middle mouse: the soldier nearest the looked-at titan becomes its decoy, and the
+## other nearby soldiers attack it.
+func _command_distract() -> void:
+	if _camera == null:
+		return
+	var origin := _camera.global_position
+	var forward := -_camera.global_basis.z
+	var titan: Titan
+	var best_dot := cos(deg_to_rad(distract_aim_angle_deg))
+	for node in get_tree().get_nodes_in_group("titan"):
+		var candidate := node as Titan
+		if candidate == null or not candidate.alive:
+			continue
+		for height: float in [0.0, 6.0, 12.0]:
+			var to: Vector3 = candidate.global_position + Vector3.UP * height - origin
+			if to.length() > distract_max_distance:
+				continue
+			var d := forward.dot(to.normalized())
+			if d > best_dot:
+				best_dot = d
+				titan = candidate
+	if titan == null:
+		return
+	var soldiers: Array[Soldier] = []
+	for node in get_tree().get_nodes_in_group("soldier"):
+		var soldier := node as Soldier
+		if soldier != null and soldier.alive \
+				and soldier.global_position.distance_to(global_position) <= distract_soldier_range:
+			soldiers.append(soldier)
+	if soldiers.is_empty():
+		return
+	soldiers.sort_custom(func(a: Soldier, b: Soldier) -> bool:
+		return a.global_position.distance_squared_to(titan.global_position) \
+				< b.global_position.distance_squared_to(titan.global_position))
+	titan.distract(soldiers[0], distract_duration)
+	for soldier in soldiers:
+		soldier.command_target(titan, distract_duration)
 
 
 ## Handles global player input: mouse capture, escape, camera cycling, and
@@ -252,6 +334,11 @@ func _input(event: InputEvent) -> void:
 
 	if event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		return
+
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_MIDDLE \
+			and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_command_distract()
 		return
 
 	if event.is_action_pressed("camera_cycle"):
@@ -573,10 +660,12 @@ func _process_move(delta: float) -> void:
 		else:
 			horizontal = horizontal.move_toward(Vector3.ZERO, ground_deceleration * delta)
 	elif move_dir.length() > 0.0:
-		# Add control only up to ordinary air speed along the requested direction.
-		# Existing speed, including momentum from an ODM launch, carries through.
-		var available_speed := maxf(0.0, current_speed - horizontal.dot(move_dir))
-		horizontal += move_dir * minf(air_acceleration * delta, available_speed)
+		# ODM-style wish accel: steer toward input, keep any momentum above the soft cap.
+		var updated := horizontal + move_dir * air_acceleration * delta
+		var limit := maxf(air_steer_max_speed, horizontal.length())
+		if updated.length() > limit:
+			updated = updated.normalized() * limit
+		horizontal = updated
 	else:
 		horizontal = horizontal.move_toward(Vector3.ZERO, air_deceleration * delta)
 
@@ -749,12 +838,11 @@ func _update_camera_follow_offsets() -> void:
 		var shoulder_width := absf(authored_offset.x)
 
 		if _pcams[i].name == &"RightShoulderCam":
-			# The follow target is shifted toward the camera. The opposite
-			# viewport-right direction places the camera over the model's
-			# right shoulder.
-			world_offset -= viewport_right * shoulder_width
-		elif _pcams[i].name == &"LeftShoulderCam":
+			# Shift the follow target toward viewport-right so the camera sits
+			# over the model's right shoulder (character framed left of center).
 			world_offset += viewport_right * shoulder_width
+		elif _pcams[i].name == &"LeftShoulderCam":
+			world_offset -= viewport_right * shoulder_width
 		else:
 			world_offset += viewport_right * authored_offset.x
 

@@ -6,7 +6,6 @@
 [ext_resource type="Script" uid="uid://8umksf8e80fw" path="res://addons/phantom_camera/scripts/resources/tween_resource.gd" id="4_t5ptc"]
 [ext_resource type="PackedScene" path="res://scenes/world/giant_forest.tscn" id="5_play"]
 [ext_resource type="PackedScene" path="res://scenes/ui/odm_hud.tscn" id="6_hud"]
-[ext_resource type="Script" path="res://scripts/world/map_switcher.gd" id="7_switch"]
 
 [ext_resource type="PackedScene" path="res://scenes/enemies/titan.tscn" id="8_titan"]
 [ext_resource type="Script" path="res://scripts/npc/soldier_director.gd" id="9_director"]
@@ -23,7 +22,9 @@ sky_top_color = Color(0.36, 0.52, 0.68, 1)
 sky_horizon_color = Color(0.7, 0.76, 0.68, 1)
 ground_bottom_color = Color(0.4, 0.48, 0.42, 1)
 ground_horizon_color = Color(0.55, 0.63, 0.56, 1)
-sun_angle_max = 18.0
+sun_angle_max = 6.0
+sun_curve = 0.35
+energy_multiplier = 0.8
 
 [sub_resource type="Sky" id="Sky_forest"]
 sky_material = SubResource("SkyMaterial_forest")
@@ -37,32 +38,32 @@ ambient_light_sky_contribution = 0.75
 ambient_light_energy = 1.05
 reflected_light_source = 2
 tonemap_mode = 4
-tonemap_exposure = 1.05
+tonemap_exposure = 0.95
 ssao_enabled = true
 ssao_radius = 2.0
 ssao_intensity = 2.5
 glow_enabled = true
-glow_intensity = 0.5
-glow_bloom = 0.04
+glow_intensity = 0.3
+glow_bloom = 0.0
+glow_hdr_threshold = 1.6
 fog_enabled = true
 fog_light_color = Color(0.5, 0.6, 0.52, 1)
 fog_light_energy = 0.9
-fog_sun_scatter = 0.25
+fog_sun_scatter = 0.06
 fog_density = 0.0085
 fog_aerial_perspective = 0.4
 fog_sky_affect = 0.5
 volumetric_fog_enabled = true
 volumetric_fog_density = 0.01
 volumetric_fog_albedo = Color(0.85, 0.9, 0.82, 1)
-volumetric_fog_anisotropy = 0.6
-volumetric_fog_length = 110.0
+volumetric_fog_anisotropy = 0.3
+volumetric_fog_length = 170.0
 volumetric_fog_ambient_inject = 0.15
 adjustment_enabled = true
 adjustment_contrast = 1.05
 adjustment_saturation = 1.1
 
 [node name="World" type="Node3D" unique_id=1895184945]
-script = ExtResource("7_switch")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_forest")
@@ -97,7 +98,7 @@ script = ExtResource("2_6m72w")
 unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, 0, 3.250142, 3.2878046)
 script = ExtResource("3_v5dby")
-priority = 10
+priority = 0
 follow_mode = 6
 follow_target = NodePath("../Player")
 tween_resource = SubResource("Resource_bq33v")
@@ -114,7 +115,7 @@ align_rotation_with_view = Callable()
 unique_name_in_owner = true
 transform = Transform3D(1, 0, 0, 0, 0.9393727, 0.34289777, 0, -0.34289777, 0.9393727, -1, 2.750142, 3.2878046)
 script = ExtResource("3_v5dby")
-priority = 10
+priority = 0
 follow_mode = 6
 follow_target = NodePath("../Player")
 tween_resource = SubResource("Resource_bq33v")
@@ -144,13 +145,11 @@ align_transform_with_view = Callable()
 align_position_with_view = Callable()
 align_rotation_with_view = Callable()
 
-[node name="Titan" parent="." instance=ExtResource("8_titan")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -30)
-
 [node name="SoldierDirector" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 0, 10)
 script = ExtResource("9_director")
-soldier_count = 2
+player_path = NodePath("../Player")
+titan_scene = ExtResource("8_titan")
+starting_soldiers = 3
 
 [node name="ODMHUD" parent="." unique_id=532337543 instance=ExtResource("6_hud")]
 

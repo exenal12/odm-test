@@ -262,14 +262,19 @@ func refill_gas(amount: float = -1.0) -> void:
 	gas_changed.emit(gas, gas_max)
 
 
-## Detaches both hooks and hides the cables.
-func release_hooks() -> void:
+## Detaches both hooks. Pass instant to remove cables and anchors immediately
+## instead of playing the retract animation (used on death).
+func release_hooks(instant: bool = false) -> void:
 	_ai_fire = [false, false]
 	for pair in [[_left_hook, true], [_right_hook, false]]:
 		var hook: ODMHook = pair[0]
-		if hook != null and hook.is_attached():
-			hook.detach()
-			hook_detached.emit(pair[1])
+		if hook == null:
+			continue
+		var was_attached := hook.is_attached()
+		if was_attached or instant:
+			hook.detach(instant)
+			if was_attached:
+				hook_detached.emit(pair[1])
 	hooks_changed.emit(false, false)
 	_update_cable_visuals()
 

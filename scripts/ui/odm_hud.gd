@@ -6,7 +6,6 @@ extends CanvasLayer
 @onready var left_hook_indicator: Control = %LeftHook
 @onready var right_hook_indicator: Control = %RightHook
 @onready var reticle: Control = %Reticle
-@onready var hint_label: Label = %HintLabel
 @onready var reel_icon: Control = %ReelIcon
 @onready var reel_status: Label = %ReelStatus
 
@@ -25,9 +24,15 @@ const GAS_LOW := Color(0.95, 0.65, 0.2)
 const GAS_EMPTY := Color(0.85, 0.15, 0.1)
 
 @onready var kill_count: Label = %KillCount
+@onready var time_value: Label = %TimeValue
+@onready var death_time: Label = %DeathTime
+@onready var death_kills: Label = %DeathKills
+@onready var allies_count: Label = %AlliesCount
+@onready var titans_count: Label = %TitansCount
 @onready var health_ghost: ProgressBar = %HealthGhost
 
 var _kills: int = 0
+var _elapsed: float = 0.0
 var _odm: ODMController
 var _health: PlayerHealth
 var _low_health_alpha: float = 0.0
@@ -65,9 +70,29 @@ func _on_titan_died(_titan: Titan) -> void:
 	create_tween().tween_property(kill_count, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	allies_count.text = str(_count_alive("soldier"))
+	titans_count.text = str(_count_alive("titan"))
+	if not death_screen.visible:
+		_elapsed += delta
+		time_value.text = _format_time(_elapsed)
 	if _odm and not death_screen.visible:
 		reticle.set_locked(_odm.can_hook_target())
+
+
+func _count_alive(group: StringName) -> int:
+	var n := 0
+	for node in get_tree().get_nodes_in_group(group):
+		if node.get("alive") != false:
+			n += 1
+	return n
+
+
+func _format_time(seconds: float) -> String:
+	var total := int(seconds)
+	if total < 3600:
+		return "%d:%02d" % [total / 60, total % 60]
+	return "%d:%02d:%02d" % [total / 3600, (total / 60) % 60, total % 60]
 
 
 func _on_hook_fired(_is_left: bool) -> void:
@@ -143,6 +168,8 @@ func _on_damaged(_amount: float, _source: Node) -> void:
 
 
 func _on_died() -> void:
+	death_time.text = _format_time(_elapsed)
+	death_kills.text = str(_kills)
 	death_screen.modulate.a = 0.0
 	death_screen.show()
 	create_tween().tween_property(death_screen, "modulate:a", 1.0, 1.2)

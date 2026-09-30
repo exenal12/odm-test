@@ -82,6 +82,8 @@ const REFLANK_TIMEOUT := 12.0
 @onready var audio: Node = $PlayerAudio
 
 var target: Titan
+var _forced_titan: Titan
+var _forced_until_msec: int = 0
 var health: float = 0.0
 var alive: bool = true
 
@@ -105,6 +107,7 @@ var _climb_time: float = 0.0
 var _climb_retry: float = 0.0
 var _was_on_floor: bool = true
 var _air_time: float = 0.0
+var _debug_label: Label3D
 
 
 func _ready() -> void:
@@ -120,6 +123,8 @@ func _ready() -> void:
 	_agent.target_desired_distance = 2.0
 	add_child(_agent)
 	_hook_timer = randf() * hook_retry
+	GameSettings.settings_changed.connect(_sync_debug_settings)
+	_sync_debug_settings()
 
 
 ## Titans call this (same signature as the player's).
@@ -136,7 +141,7 @@ func _die() -> void:
 	_climbing = false
 	alive = false
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
-	odm.release_hooks()
+	odm.release_hooks(true)
 	odm.ai_steer = Vector3.ZERO
 	animation.play_death(airborne)
 	died.emit(self)
@@ -191,13 +196,28 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_update_animation()
 	_update_audio(delta)
+	_update_debug_label()
 
 
 func _target_valid() -> bool:
 	return target != null and is_instance_valid(target) and target.alive
 
 
+## Locks this soldier onto a titan, overriding nearest-titan selection for a while.
+func command_target(titan: Titan, duration: float) -> void:
+	_forced_titan = titan
+	_forced_until_msec = Time.get_ticks_msec() + int(duration * 1000.0)
+	_retarget_timer = 0.0
+
+
 func _pick_target() -> void:
+	if Time.get_ticks_msec() < _forced_until_msec and is_instance_valid(_forced_titan) and _forced_titan.alive:
+		if target != _forced_titan:
+			_aim_attempt = 0
+			_reflank_left = 0.0
+			_reaction_left = -1.0
+		target = _forced_titan
+		return
 	var best: Titan
 	var best_dist := INF
 	for node in get_tree().get_nodes_in_group("titan"):
@@ -656,3 +676,47 @@ func _update_animation() -> void:
 		animation.play_base(&"RunForward", clampf(speed / 4.0, 0.5, 1.0))
 	else:
 		animation.play_base(&"Idle")
+
+
+func _sync_debug_settings() -> void:
+	if GameSettings.debug_soldier_ai:
+		if _debug_label == null:
+			_debug_label = Label3D.new()
+			_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			_debug_label.no_depth_test = true
+			_debug_label.pixel_size = 0.02
+			_debug_label.font_size = 32
+			_debug_label.position = Vector3(0.0, 2.4, 0.0)
+			_debug_label.modulate = Color(0.75, 0.95, 1.0)
+			add_child(_debug_label)
+		_debug_label.visible = true
+	elif _debug_label != null:
+		_debug_label.visible = false
+
+
+func _update_debug_label() -> void:
+	if _debug_label == null or not _debug_label.visible:
+		return
+	_debug_label.text = _ai_status_text()
+
+
+func _ai_status_text() -> String:
+	if not alive:
+		return "DEAD"
+	if _refueling:
+		return "REFUEL CLIMB" if _climbing else "REFUEL"
+	if _hit_timer >= 0.0:
+		return "STRIKE"
+	if _climbing:
+		return "CLIMB"
+	if _traversing:
+		return "TRAVERSE"
+	if _reflank_left > 0.0:
+		return "REFLANK"
+	if not _target_valid():
+		return "IDLE"
+	if odm.is_hooked():
+		return "HOOKED"
+	if _reaction_left > 0.0:
+		return "WINDUP"
+	return "APPROACH"

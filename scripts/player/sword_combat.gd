@@ -33,6 +33,7 @@ var _pending_elapsed: Array[float] = [0.0, 0.0]
 var _holding: Array[bool] = [false, false]
 var _hit_targets: Array[Dictionary] = [{}, {}]
 var _grab_struck: Array[bool] = [false, false]
+var _debug_meshes: Array[MeshInstance3D] = []
 
 
 func _ready() -> void:
@@ -44,6 +45,9 @@ func _ready() -> void:
 	right_hitbox.area_entered.connect(_on_overlap.bind(1))
 	left_hitbox.monitoring = false
 	right_hitbox.monitoring = false
+	_setup_debug_meshes()
+	GameSettings.settings_changed.connect(_sync_debug_meshes)
+	_sync_debug_meshes()
 
 
 func _process(delta: float) -> void:
@@ -89,6 +93,53 @@ func _process(delta: float) -> void:
 					_cooldown_left = attack_cooldown
 				else:
 					_cooldown_right = attack_cooldown
+	_update_debug_mesh_colors()
+
+
+func _setup_debug_meshes() -> void:
+	for hb in [left_hitbox, right_hitbox]:
+		var shape_node := hb.get_node_or_null("CollisionShape3D") as CollisionShape3D
+		if shape_node == null or shape_node.shape == null:
+			_debug_meshes.append(null)
+			continue
+		var mi := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		if shape_node.shape is BoxShape3D:
+			box.size = (shape_node.shape as BoxShape3D).size
+		mi.mesh = box
+		var mat := StandardMaterial3D.new()
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(1.0, 0.35, 0.15, 0.22)
+		mat.no_depth_test = true
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mi.material_override = mat
+		mi.visible = false
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		shape_node.add_child(mi)
+		_debug_meshes.append(mi)
+
+
+func _sync_debug_meshes() -> void:
+	var on := GameSettings.debug_sword_hitboxes
+	for mesh in _debug_meshes:
+		if mesh != null:
+			mesh.visible = on
+	_update_debug_mesh_colors()
+
+
+func _update_debug_mesh_colors() -> void:
+	if not GameSettings.debug_sword_hitboxes:
+		return
+	for side in 2:
+		var mesh := _debug_meshes[side] if side < _debug_meshes.size() else null
+		if mesh == null:
+			continue
+		var mat := mesh.material_override as StandardMaterial3D
+		if mat == null:
+			continue
+		mat.albedo_color = Color(1.0, 0.12, 0.08, 0.55) if _hitbox(side).monitoring \
+			else Color(1.0, 0.4, 0.2, 0.2)
 
 
 func _start_attack(side: int) -> void:

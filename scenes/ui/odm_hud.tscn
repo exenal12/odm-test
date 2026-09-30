@@ -178,6 +178,49 @@ layout_mode = 2
 mouse_filter = 2
 script = ExtResource("6_minimap")
 
+[node name="Counts" type="HBoxContainer" parent="Root/TopRight"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="AlliesTitle" type="Label" parent="Root/TopRight/Counts"]
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 12
+text = "ALLIES"
+
+[node name="AlliesCount" type="Label" parent="Root/TopRight/Counts"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 18
+text = "0"
+
+[node name="Spacer" type="Control" parent="Root/TopRight/Counts"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="TitansTitle" type="Label" parent="Root/TopRight/Counts"]
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 12
+text = "TITANS"
+
+[node name="TitansCount" type="Label" parent="Root/TopRight/Counts"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.9, 0.15, 0.1, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 18
+text = "0"
+
 [node name="KillRow" type="HBoxContainer" parent="Root" unique_id=33327345]
 layout_mode = 1
 offset_left = 24.0
@@ -185,10 +228,34 @@ offset_top = 102.0
 offset_right = 280.0
 offset_bottom = 132.0
 mouse_filter = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
+
+[node name="TimeTitle" type="Label" parent="Root/KillRow"]
+layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 12
+text = "TIME SURVIVED"
+
+[node name="TimeValue" type="Label" parent="Root/KillRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(44, 0)
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 18
+text = "0:00"
+
+[node name="Spacer" type="Control" parent="Root/KillRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
 
 [node name="KillTitle" type="Label" parent="Root/KillRow" unique_id=94901212]
 layout_mode = 2
+size_flags_vertical = 4
+mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "TITANS SLAIN"
@@ -197,7 +264,7 @@ text = "TITANS SLAIN"
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/outline_size = 3
-theme_override_font_sizes/font_size = 22
+theme_override_font_sizes/font_size = 18
 text = "0"
 
 [node name="EscapePanel" type="PanelContainer" parent="Root" unique_id=1225958781]
@@ -283,6 +350,48 @@ theme_override_font_sizes/font_size = 84
 text = "YOU DIED"
 horizontal_alignment = 1
 
+[node name="Stats" type="HBoxContainer" parent="Root/DeathScreen/Center"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 64
+
+[node name="TimeStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats"]
+layout_mode = 2
+theme_override_constants/separation = -4
+
+[node name="TimeTitle" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 14
+text = "TIME SURVIVED"
+horizontal_alignment = 1
+
+[node name="DeathTime" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 36
+text = "0:00"
+horizontal_alignment = 1
+
+[node name="KillStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats"]
+layout_mode = 2
+theme_override_constants/separation = -4
+
+[node name="KillTitle" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
+theme_override_font_sizes/font_size = 14
+text = "TITANS SLAIN"
+horizontal_alignment = 1
+
+[node name="DeathKills" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.2, 0.12, 1)
+theme_override_font_sizes/font_size = 36
+text = "0"
+horizontal_alignment = 1
+
 [node name="RestartButton" type="Button" parent="Root/DeathScreen/Center" unique_id=756066809]
 unique_name_in_owner = true
 layout_mode = 2
@@ -305,24 +414,3 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("4_reticle")
 
-[node name="HintLabel" type="Label" parent="Root" unique_id=913339676]
-unique_name_in_owner = true
-modulate = Color(1, 1, 1, 0.65)
-layout_mode = 1
-anchors_preset = 3
-anchor_left = 1.0
-anchor_top = 1.0
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = -360.0
-offset_top = -116.0
-offset_right = -24.0
-offset_bottom = -24.0
-grow_horizontal = 0
-grow_vertical = 0
-theme_override_font_sizes/font_size = 14
-text = "Q/LMB Left Hook  |  E/RMB Right Hook
-Shift Boost (air/hooked)  |  R Toggle reel
-V Cycle camera  |  F Interact
-1 Debug map  |  2 Giant forest"
-horizontal_alignment = 2

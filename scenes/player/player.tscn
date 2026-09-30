@@ -12,8 +12,7 @@
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
 [ext_resource type="Script" uid="uid://2uvggp58df1c" path="res://scripts/player/player_health.gd" id="12_health"]
-[ext_resource type="Script" path="res://scripts/player/character_appearance.gd" id="13_appearance"]
-[ext_resource type="Script" path="res://scripts/debug/debug_kill.gd" id="14_debug_kill"]
+[ext_resource type="Script" uid="uid://pbxamq4joqw0" path="res://scripts/player/character_appearance.gd" id="13_appearance"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_xd2r4"]
 radius = 0.34814453
@@ -77,10 +76,7 @@ script = ExtResource("7_sword_combat")
 [node name="PlayerHealth" type="Node" parent="." unique_id=228732491]
 script = ExtResource("12_health")
 
-[node name="Appearance" type="Node" parent="."]
+[node name="Appearance" type="Node" parent="." unique_id=381621749]
 script = ExtResource("13_appearance")
-
-[node name="DebugKill" type="Node" parent="."]
-script = ExtResource("14_debug_kill")
 
 [editable path="Model"]

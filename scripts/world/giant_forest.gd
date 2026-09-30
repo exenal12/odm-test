@@ -28,6 +28,11 @@ const GRASS_PER_CHUNK := 260
 const FERNS_PER_CHUNK := 14
 const GRASS_VISIBLE_RANGE := 55.0
 const FERN_VISIBLE_RANGE := 110.0
+## Silhouette trees and ground extend this far past the boundary before the mist takes over.
+const BORDER_BACKDROP_DEPTH := 30.0
+const BORDER_MIST_WIDTH := 45.0
+const BORDER_MIST_HEIGHT := 140.0
+const BORDER_MIST_DENSITY := 0.09
 
 var _rng := RandomNumberGenerator.new()
 ## Separate stream for purely visual variation, so the layout stays the same.
@@ -290,20 +295,9 @@ func _dress_platform(platform: Node3D, reach: float, trunk_radius: float, suppli
 			_visual_segment(dressing, from, to, 0.022, rope_material)
 
 	var lantern_angle := supplier_angle + gap + 0.15
-	var lantern_pos := Vector3(cos(lantern_angle), 0.0, sin(lantern_angle)) * post_radius \
-		+ Vector3.UP * (deck_top + 1.35)
-	var frame := MeshInstance3D.new()
-	var frame_mesh := BoxMesh.new()
-	frame_mesh.size = Vector3(0.22, 0.3, 0.22)
-	frame.mesh = frame_mesh
-	var glass := StandardMaterial3D.new()
-	glass.albedo_color = Color(1.0, 0.75, 0.4)
-	glass.emission_enabled = true
-	glass.emission = Color(1.0, 0.62, 0.25)
-	glass.emission_energy_multiplier = 3.0
-	frame.material_override = glass
-	frame.position = lantern_pos
-	dressing.add_child(frame)
+	var post_base := Vector3(cos(lantern_angle), 0.0, sin(lantern_angle)) * post_radius \
+		+ Vector3.UP * deck_top
+	var lantern_pos := _build_lantern(dressing, post_base)
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.7, 0.4)
 	light.light_energy = 1.6
@@ -345,6 +339,64 @@ func _dress_platform(platform: Node3D, reach: float, trunk_radius: float, suppli
 		emblem.basis = facing if side > 0.0 else facing * Basis(Vector3.UP, PI)
 		emblem.position = banner.position + facing.z * 0.01 * side + Vector3.UP * 0.2
 		dressing.add_child(emblem)
+
+## Lamp post with a hanging lantern (cap, glowing glass, base and frame bars).
+## Returns the lantern's center so the caller can place the light there.
+func _build_lantern(parent: Node3D, post_base: Vector3) -> Vector3:
+	var iron := _material(Color(0.1, 0.09, 0.08))
+	var inward := Vector3(-post_base.x, 0.0, -post_base.z).normalized()
+	var post_top := post_base + Vector3.UP * 2.1
+	_visual_segment(parent, post_base, post_top, 0.05, _wood_material)
+	var arm_end := post_top + inward * 0.45
+	_visual_segment(parent, post_top, arm_end, 0.03, iron)
+	_visual_segment(parent, post_top + Vector3.DOWN * 0.3, post_top + inward * 0.25, 0.02, iron)
+	var chain_end := arm_end + Vector3.DOWN * 0.22
+	_visual_segment(parent, arm_end, chain_end, 0.012, iron)
+	var center := chain_end + Vector3.DOWN * 0.24
+
+	var cap_mesh := CylinderMesh.new()
+	cap_mesh.top_radius = 0.02
+	cap_mesh.bottom_radius = 0.15
+	cap_mesh.height = 0.1
+	cap_mesh.radial_segments = 6
+	var cap := MeshInstance3D.new()
+	cap.mesh = cap_mesh
+	cap.material_override = iron
+	cap.position = center + Vector3.UP * 0.19
+	parent.add_child(cap)
+
+	var glass_mesh := CylinderMesh.new()
+	glass_mesh.top_radius = 0.1
+	glass_mesh.bottom_radius = 0.09
+	glass_mesh.height = 0.28
+	glass_mesh.radial_segments = 6
+	var glass := StandardMaterial3D.new()
+	glass.albedo_color = Color(1.0, 0.75, 0.4)
+	glass.emission_enabled = true
+	glass.emission = Color(1.0, 0.62, 0.25)
+	glass.emission_energy_multiplier = 3.0
+	var body := MeshInstance3D.new()
+	body.mesh = glass_mesh
+	body.material_override = glass
+	body.position = center
+	parent.add_child(body)
+
+	var base_mesh := CylinderMesh.new()
+	base_mesh.top_radius = 0.1
+	base_mesh.bottom_radius = 0.07
+	base_mesh.height = 0.05
+	base_mesh.radial_segments = 6
+	var base := MeshInstance3D.new()
+	base.mesh = base_mesh
+	base.material_override = iron
+	base.position = center + Vector3.DOWN * 0.165
+	parent.add_child(base)
+
+	for i in 6:
+		var a := TAU * float(i) / 6.0
+		var bar_pos := Vector3(cos(a), 0.0, sin(a)) * 0.105
+		_visual_segment(parent, center + bar_pos + Vector3.DOWN * 0.15, center + bar_pos + Vector3.UP * 0.15, 0.008, iron)
+	return center
 
 
 func _visual_segment(parent: Node3D, from: Vector3, to: Vector3, radius: float, material: Material) -> void:
@@ -490,7 +542,7 @@ func _build_backdrop() -> void:
 	backdrop.name = "Backdrop"
 	add_child(backdrop)
 	var inner := FOREST_HALF_SIZE + 4.0
-	var outer := FOREST_HALF_SIZE + 110.0
+	var outer := FOREST_HALF_SIZE + BORDER_BACKDROP_DEPTH
 	var floor_mesh := PlaneMesh.new()
 	floor_mesh.size = Vector2(outer * 2.0, outer * 2.0)
 	var floor_visual := MeshInstance3D.new()
@@ -515,7 +567,7 @@ func _build_backdrop() -> void:
 	var trunk_xforms: Array[Transform3D] = []
 	var crown_xforms: Array[Transform3D] = []
 	var attempts := 0
-	while trunk_xforms.size() < 260 and attempts < 5000:
+	while trunk_xforms.size() < 90 and attempts < 5000:
 		attempts += 1
 		var pos := Vector3(_look_rng.randf_range(-outer, outer), 0.0, _look_rng.randf_range(-outer, outer))
 		if maxf(absf(pos.x), absf(pos.z)) < inner:
@@ -543,6 +595,41 @@ func _build_backdrop() -> void:
 		instance.material_override = pair[1]
 		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		backdrop.add_child(instance)
+	_build_border_mist(backdrop)
+
+
+## A thick bank of volumetric mist straddling the boundary walls, so the edge reads
+## as closed off. Only rendered when the environment has volumetric fog enabled.
+func _build_border_mist(parent: Node3D) -> void:
+	var noise := FastNoiseLite.new()
+	noise.frequency = 0.05
+	var density_texture := NoiseTexture3D.new()
+	density_texture.width = 64
+	density_texture.height = 32
+	density_texture.depth = 64
+	density_texture.seamless = true
+	density_texture.noise = noise
+	var material := FogMaterial.new()
+	material.density = BORDER_MIST_DENSITY
+	material.albedo = Color(0.8, 0.86, 0.8)
+	material.edge_fade = 0.35
+	material.density_texture = density_texture
+	var half := FOREST_HALF_SIZE
+	var length := (half + BORDER_MIST_WIDTH) * 2.0
+	for side in [-1.0, 1.0]:
+		for axis in 2:
+			var volume := FogVolume.new()
+			volume.name = "BorderMist"
+			volume.shape = RenderingServer.FOG_VOLUME_SHAPE_BOX
+			volume.material = material
+			var inset: float = side * (half + BORDER_MIST_WIDTH * 0.15)
+			if axis == 0:
+				volume.size = Vector3(BORDER_MIST_WIDTH, BORDER_MIST_HEIGHT, length)
+				volume.position = Vector3(inset, BORDER_MIST_HEIGHT * 0.5 - 2.0, 0.0)
+			else:
+				volume.size = Vector3(length, BORDER_MIST_HEIGHT, BORDER_MIST_WIDTH)
+				volume.position = Vector3(0.0, BORDER_MIST_HEIGHT * 0.5 - 2.0, inset)
+			parent.add_child(volume)
 
 
 ## One MultiMesh of randomly placed, rotated and tinted copies within a chunk.

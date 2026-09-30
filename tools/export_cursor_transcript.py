@@ -33,6 +33,12 @@ TITLES = {
     "cd815041-13ae-494d-8132-41c471d3a589": "Allied NPC combat AI",
     "d1a8c542-4e17-46d6-beb0-934f454f7e25": "Prototype world architecture",
     "e0d67b01-e4b6-45d8-aa23-e82c32d649c6": "GitHub repository setup",
+    "58c5e749-b952-4c2a-b056-464f17f0a21f": "Clear ODM cables on death",
+    "88456fb5-7d2a-40d8-8234-a9ee7cd05f7e": "Spawn logic",
+    "2db4892f-8059-4b52-b707-98fec49d5125": "Fix world playground refs",
+    "f0846041-2997-4922-bc03-394cc943fb49": "Game title ideas",
+    "dcc5fa7d-6212-4ffc-bf23-7c41fba14e49": "Main menu settings page",
+    "d26a744c-6edf-4e9e-af56-0c0752c8d4ec": "Airborne movement control",
 }
 
 

@@ -128,16 +128,30 @@ func fire(
 	return true
 
 
-## Returns the hook to its idle state and reels the anchor back in. Emits detach
-## only when it was previously attached.
-func detach() -> void:
-	if state == State.IDLE:
+## Returns the hook to its idle state. By default the anchor reels back in;
+## pass instant to hide the cable and hook immediately. Emits detach only when
+## it was previously attached.
+func detach(instant: bool = false) -> void:
+	var was_attached := state == State.ATTACHED
+	if not was_attached and not instant:
 		return
 	state = State.IDLE
 	_anchor_body = null
-	if _visual == Visual.OUT or _visual == Visual.LATCHED:
+	if instant:
+		_hide_visuals()
+	elif _visual == Visual.OUT or _visual == Visual.LATCHED:
 		_visual = Visual.RETRACT
-	detached.emit()
+	if was_attached:
+		detached.emit()
+
+
+func _hide_visuals() -> void:
+	_visual = Visual.HIDDEN
+	_points.clear()
+	if is_instance_valid(_cable_mesh):
+		_cable_mesh.visible = false
+	if is_instance_valid(_anchor_model):
+		_anchor_model.visible = false
 
 
 ## Decreases cable length while preserving the configured minimum length.

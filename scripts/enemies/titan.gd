@@ -6,10 +6,11 @@ extends CharacterBody3D
 signal died(titan: Titan)
 signal hit_player(player: CharacterBody3D, damage: float)
 
-enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, DEAD }
+enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, STOMP, DEAD }
 
 const GrabArm := preload("res://scripts/enemies/titan_grab_arm.gd")
 const OpenHands := preload("res://scripts/enemies/titan_open_hands.gd")
+const LegIK := preload("res://scripts/enemies/titan_leg_ik.gd")
 const NAPE_BONE := "B-neck"
 ## Nape offset from the neck bone in skeleton space (unscaled model units, -Z is the back).
 const NAPE_OFFSET := Vector3(0.0, 0.05, -0.13)
@@ -72,6 +73,8 @@ const SEGMENTS := [
 ## A hand hits if the player is within this horizontal radius and vertical reach of it.
 @export var hit_radius: float = 5.5
 @export var hit_vertical_reach: float = 10.0
+## Swipes and stomps only hit targets within this angle of the titan's facing.
+@export_range(10.0, 180.0) var hit_half_angle_deg: float = 80.0
 ## How open the hands are during a swat; the source clips grip a sword (0 = clip, 1 = relaxed).
 @export_range(0.0, 1.0) var swat_open_hand: float = 1.0
 @export var knockback: float = 30.0
@@ -103,6 +106,28 @@ const SEGMENTS := [
 @export var grab_rotation_offset_deg: Vector3 = Vector3.ZERO
 ## Speed the player is thrown away at when freed.
 @export var release_speed: float = 12.0
+
+@export_group("Stomp")
+## Chance an attack becomes a stomp when the target is close and low.
+@export_range(0.0, 1.0) var stomp_chance: float = 0.7
+## Target must be within this flat distance and below stomp_max_height (from the titan's feet).
+@export var stomp_range: float = 7.0
+@export var stomp_max_height: float = 3.0
+@export var stomp_cooldown: float = 5.0
+@export var stomp_damage: float = 45.0
+## Full damage inside stomp_direct_radius, falling off to zero at stomp_radius.
+@export var stomp_direct_radius: float = 2.0
+@export var stomp_radius: float = 5.0
+@export var stomp_knockback: float = 22.0
+@export var stomp_knockback_up: float = 10.0
+## How high the foot is raised above the ground during the telegraph.
+@export var stomp_lift_height: float = 3.5
+@export var stomp_lift_time: float = 0.6
+## Pause with the foot raised; the aim locks at the start of this so it can be dodged.
+@export var stomp_hold_time: float = 0.35
+@export var stomp_slam_time: float = 0.12
+@export var stomp_recover_time: float = 0.6
+@export var stomp_camera_shake: float = 0.6
 
 @export_group("Debug")
 @export var show_debug: bool = true
@@ -137,6 +162,8 @@ var _home: Vector3
 var _nav_ready: bool = false
 var _wandering: bool = false
 var _has_target: bool = false
+var _forced_target: CharacterBody3D
+var _forced_until_msec: int = 0
 var _wait_timer: float = 2.0
 var _state_timer: float = 0.0
 var _cooldown_left: float = 0.0
@@ -145,6 +172,10 @@ var _attack_length: float = 1.0
 var _attack_landed: bool = false
 var _hand_bones: Array[int] = []
 var _debug_label: Label3D
+var _hit_debug: Array[MeshInstance3D] = []
+var _debug_arc: MeshInstance3D
+var _debug_stomp: MeshInstance3D
+var _debug_stomp_core: MeshInstance3D
 var _pending_grab: bool = false
 var _attack_hand: int = 0
 var _grab_cooldown_left: float = 0.0
@@ -162,6 +193,16 @@ var _grab_start_basis: Basis
 var _grab_weight_start: float = 0.0
 var _arm_tween: Tween
 var _open_hands: OpenHands
+var _leg_ik: LegIK
+var _leg_tween: Tween
+var _stomp_cooldown_left: float = 0.0
+var _stomp_time: float = 0.0
+var _stomp_rest: Vector3
+var _stomp_aim: Vector3
+var _stomp_ankle_height: float = 0.0
+var _stomp_reach: float = 4.0
+var _stomp_hip: int = -1
+var _stomp_landed: bool = false
 var _hands_tween: Tween
 var _grab_side: float = 1.0
 var _arm_reach: float = 1.0
@@ -184,16 +225,16 @@ func _ready() -> void:
 	_open_hands.setup(animation_player.get_animation(&"titan/Idle"))
 	_grab_arm = GrabArm.new()
 	skeleton.add_child(_grab_arm)
+	_leg_ik = LegIK.new()
+	skeleton.add_child(_leg_ik)
+	# Colliders follow the final pose, including IK, so the stomping leg can be hooked and blocks.
+	skeleton.skeleton_updated.connect(_update_segments)
+	skeleton.skeleton_updated.connect(_update_hit_debug)
 	_home = global_position
 	last_known = global_position
-	if show_debug:
-		_debug_label = Label3D.new()
-		_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_debug_label.no_depth_test = true
-		_debug_label.pixel_size = 0.04
-		_debug_label.font_size = 48
-		_debug_label.position = Vector3(0.0, 17.0, 0.0)
-		add_child(_debug_label)
+	_setup_hit_debug()
+	GameSettings.settings_changed.connect(_sync_debug_settings)
+	_sync_debug_settings()
 
 
 ## Builds a kinematic capsule that follows the bones every physics frame.
@@ -233,7 +274,6 @@ func _process(_delta: float) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	_update_segments()
 	# The body collider is off once dead, so moving would drop it through the floor.
 	if state == State.DEAD:
 		return
@@ -257,6 +297,7 @@ func _physics_process(delta: float) -> void:
 	_sense(delta)
 	_cooldown_left = maxf(0.0, _cooldown_left - delta)
 	_grab_cooldown_left = maxf(0.0, _grab_cooldown_left - delta)
+	_stomp_cooldown_left = maxf(0.0, _stomp_cooldown_left - delta)
 	match state:
 		State.WANDER: _state_wander(delta)
 		State.INVESTIGATE: _state_investigate(delta)
@@ -264,7 +305,8 @@ func _physics_process(delta: float) -> void:
 		State.CHASE: _state_chase(delta)
 		State.ATTACK: _state_attack(delta)
 		State.GRAB: _state_grab(delta)
-	if state != State.ATTACK and state != State.GRAB and state != State.DEAD:
+		State.STOMP: _state_stomp(delta)
+	if state != State.ATTACK and state != State.GRAB and state != State.STOMP and state != State.DEAD:
 		_play_locomotion()
 	_finish_move(delta)
 
@@ -279,6 +321,12 @@ func _acquire_player() -> void:
 		add_collision_exception_with(player)
 
 
+## Forces this titan to focus on a decoy for a while (used by the player's distract command).
+func distract(decoy: CharacterBody3D, duration: float) -> void:
+	_forced_target = decoy
+	_forced_until_msec = Time.get_ticks_msec() + int(duration * 1000.0)
+
+
 func _valid_target(node: Node) -> bool:
 	if node == null or not is_instance_valid(node):
 		return false
@@ -288,6 +336,9 @@ func _valid_target(node: Node) -> bool:
 ## Picks the player or nearest soldier; the current target is favoured by retarget_bias.
 func _select_target() -> void:
 	if state == State.GRAB and _valid_target(target):
+		return
+	if Time.get_ticks_msec() < _forced_until_msec and _valid_target(_forced_target):
+		target = _forced_target
 		return
 	var candidates: Array[CharacterBody3D] = []
 	if _valid_target(player):
@@ -373,6 +424,8 @@ func _target_noise() -> float:
 func _set_state(new_state: State) -> void:
 	if new_state != State.GRAB and _grab_arm.weight > 0.0:
 		_fade_grab_arm()
+	if state == State.STOMP and new_state != State.STOMP:
+		_fade_leg_ik()
 	if (new_state == State.ATTACK) != (state == State.ATTACK):
 		_blend_open_hands(swat_open_hand if new_state == State.ATTACK else 0.0)
 	state = new_state
@@ -446,7 +499,10 @@ func _state_chase(delta: float) -> void:
 	var flat_dist := Vector2(to_player.x, to_player.z).length()
 	if awareness >= 0.5 and _cooldown_left <= 0.0 and flat_dist <= attack_range \
 			and absf(to_player.y) < 14.0:
-		_set_state(State.ATTACK)
+		if _stomp_cooldown_left <= 0.0 and _in_stomp_zone() and randf() < stomp_chance:
+			_begin_stomp()
+		else:
+			_set_state(State.ATTACK)
 		return
 	_set_target(last_known)
 	if agent.is_navigation_finished():
@@ -480,7 +536,7 @@ func _try_land_hit() -> void:
 			_begin_grab(_hand_bones[_attack_hand])
 		return
 	var bone := _hand_in_reach()
-	if bone < 0:
+	if bone < 0 or not _is_in_front(target.global_position, hit_half_angle_deg):
 		return
 	_attack_landed = true
 	var away := _flat_dir(target.global_position - global_position)
@@ -489,6 +545,14 @@ func _try_land_hit() -> void:
 		target.take_damage(attack_damage, self)
 	if target == player:
 		hit_player.emit(player, attack_damage)
+
+
+## True if pos is within half_angle_deg of the titan's facing, on the flat plane.
+func _is_in_front(pos: Vector3, half_angle_deg: float) -> bool:
+	var flat := _flat_dir(pos - global_position)
+	if flat == Vector3.ZERO:
+		return true
+	return _flat_dir(global_basis.z).dot(flat) >= cos(deg_to_rad(half_angle_deg))
 
 
 ## Index into _hand_bones (0 = left, 1 = right) of the hand closest to the target.
@@ -658,6 +722,163 @@ func _end_grab(throw_player: bool) -> void:
 		_set_state(State.CHASE)
 
 
+# --- Stomp ---
+
+func _in_stomp_zone() -> bool:
+	var to_target := target.global_position - global_position
+	return Vector2(to_target.x, to_target.z).length() <= stomp_range and to_target.y <= stomp_max_height
+
+
+## Picks the foot nearest the target and starts the lift.
+func _begin_stomp() -> void:
+	var xform := skeleton.global_transform
+	var left := xform * skeleton.get_bone_global_pose(skeleton.find_bone("B-foot.L")).origin
+	var right := xform * skeleton.get_bone_global_pose(skeleton.find_bone("B-foot.R")).origin
+	var side := ".L" if left.distance_squared_to(target.global_position) <= right.distance_squared_to(target.global_position) else ".R"
+	_leg_ik.setup("B-thigh" + side, "B-shin" + side, "B-foot" + side)
+	_stomp_hip = skeleton.find_bone("B-thigh" + side)
+	_stomp_rest = left if side == ".L" else right
+	_stomp_ankle_height = _stomp_rest.y - global_position.y
+	_stomp_reach = _leg_ik.leg_length() * 0.7
+	_stomp_time = 0.0
+	_stomp_landed = false
+	if _leg_tween != null:
+		_leg_tween.kill()
+	_set_state(State.STOMP)
+	animation_player.speed_scale = 1.0
+	animation_player.play(&"titan/Idle", 0.3)
+	_update_stomp_aim()
+
+
+## Ground-level ankle position over the target, clamped to what the leg can reach.
+func _update_stomp_aim() -> void:
+	var hip := skeleton.global_transform * skeleton.get_bone_global_pose(_stomp_hip).origin
+	var offset := target.global_position - hip
+	var flat := Vector2(offset.x, offset.z).limit_length(_stomp_reach)
+	_stomp_aim = Vector3(hip.x + flat.x, global_position.y + _stomp_ankle_height, hip.z + flat.y)
+
+
+func _state_stomp(delta: float) -> void:
+	_stop(delta)
+	_stomp_time += delta
+	var t := _stomp_time
+	var raised := _stomp_aim + Vector3.UP * stomp_lift_height
+	_leg_ik.pole_world = _flat_dir(global_basis.z)
+	if t < stomp_lift_time:
+		_turn_toward(_flat_dir(target.global_position - global_position), delta)
+		_update_stomp_aim()
+		var k := smoothstep(0.0, 1.0, t / stomp_lift_time)
+		_leg_ik.target_world = _stomp_rest.lerp(_stomp_aim + Vector3.UP * stomp_lift_height, k) \
+				+ Vector3.UP * sin(k * PI) * stomp_lift_height * 0.3
+		_leg_ik.weight = k
+		return
+	t -= stomp_lift_time
+	_leg_ik.weight = 1.0
+	if t < stomp_hold_time:
+		_leg_ik.target_world = raised
+		return
+	t -= stomp_hold_time
+	if t < stomp_slam_time:
+		var k := t / stomp_slam_time
+		_leg_ik.target_world = raised.lerp(_stomp_aim, k * k)
+		return
+	_leg_ik.target_world = _stomp_aim
+	if not _stomp_landed:
+		_stomp_landed = true
+		_stomp_impact()
+	t -= stomp_slam_time
+	if t >= stomp_recover_time:
+		_stomp_cooldown_left = stomp_cooldown
+		_cooldown_left = attack_cooldown
+		_set_state(State.CHASE)
+
+
+func _stomp_impact() -> void:
+	var center := Vector3(_stomp_aim.x, global_position.y, _stomp_aim.z)
+	var victims: Array[Node] = []
+	if player != null and is_instance_valid(player):
+		victims.append(player)
+	victims.append_array(get_tree().get_nodes_in_group("soldier"))
+	for node in victims:
+		var body := node as CharacterBody3D
+		if body == null:
+			continue
+		var offset := body.global_position - center
+		var dist := Vector2(offset.x, offset.z).length()
+		if dist > stomp_radius or absf(offset.y) > stomp_lift_height:
+			continue
+		if not _is_in_front(body.global_position, hit_half_angle_deg):
+			continue
+		var falloff := 1.0 if dist <= stomp_direct_radius \
+				else 1.0 - (dist - stomp_direct_radius) / maxf(stomp_radius - stomp_direct_radius, 0.01)
+		var away := _flat_dir(offset)
+		if away == Vector3.ZERO:
+			away = _flat_dir(global_basis.z)
+		body.velocity += away * stomp_knockback * falloff + Vector3.UP * stomp_knockback_up * falloff
+		var damage := stomp_damage * falloff
+		if body.has_method(&"take_damage"):
+			body.take_damage(damage, self)
+		if body == player:
+			hit_player.emit(player, damage)
+	_spawn_dust(center)
+	_shake_camera(center)
+
+
+func _spawn_dust(at: Vector3) -> void:
+	var dust := CPUParticles3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.5
+	mesh.height = 1.0
+	var material := StandardMaterial3D.new()
+	material.albedo_color = Color(0.55, 0.5, 0.42, 0.6)
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mesh.material = material
+	dust.mesh = mesh
+	dust.one_shot = true
+	dust.explosiveness = 0.9
+	dust.amount = 28
+	dust.lifetime = 1.2
+	dust.direction = Vector3.UP
+	dust.spread = 80.0
+	dust.initial_velocity_min = 4.0
+	dust.initial_velocity_max = 9.0
+	dust.gravity = Vector3(0.0, -6.0, 0.0)
+	dust.damping_min = 3.0
+	dust.damping_max = 5.0
+	dust.scale_amount_min = 1.0
+	dust.scale_amount_max = 2.5
+	var parent := get_tree().current_scene if get_tree().current_scene != null else get_parent()
+	parent.add_child(dust)
+	dust.global_position = at + Vector3.UP * 0.3
+	dust.emitting = true
+	get_tree().create_timer(dust.lifetime + 0.5).timeout.connect(dust.queue_free)
+
+
+## Shakes the active camera through its offsets, which the phantom camera does not override.
+func _shake_camera(at: Vector3) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if camera == null:
+		return
+	var strength := stomp_camera_shake * clampf(1.0 - camera.global_position.distance_to(at) / 60.0, 0.0, 1.0)
+	if strength <= 0.01:
+		return
+	var tween := create_tween()
+	for i in 8:
+		var s := strength * (1.0 - i / 8.0)
+		tween.tween_property(camera, "h_offset", randf_range(-s, s), 0.03)
+		tween.parallel().tween_property(camera, "v_offset", randf_range(-s, s), 0.03)
+	tween.tween_property(camera, "h_offset", 0.0, 0.05)
+	tween.parallel().tween_property(camera, "v_offset", 0.0, 0.05)
+
+
+func _fade_leg_ik() -> void:
+	if _leg_tween != null:
+		_leg_tween.kill()
+	_leg_tween = create_tween()
+	_leg_tween.tween_property(_leg_ik, "weight", 0.0, 0.3)
+
+
 # --- Movement helpers ---
 
 func _set_target(pos: Vector3) -> void:
@@ -697,8 +918,136 @@ func _stop(delta: float) -> void:
 func _finish_move(delta: float) -> void:
 	velocity.y = 0.0 if is_on_floor() else velocity.y - gravity * delta
 	move_and_slide()
-	if _debug_label != null:
+	if _debug_label != null and _debug_label.visible:
 		_debug_label.text = "%s  awareness %.2f" % [State.keys()[state], awareness]
+
+
+## Creates hitbox visuals: a cylinder per hand, a front-arc fan, and a stomp cylinder.
+func _setup_hit_debug() -> void:
+	for _i in 2:
+		_hit_debug.append(_make_debug_mesh(CylinderMesh.new()))
+	_debug_arc = _make_debug_mesh(ImmediateMesh.new())
+	_debug_stomp = _make_debug_mesh(CylinderMesh.new())
+	_debug_stomp_core = _make_debug_mesh(CylinderMesh.new())
+
+
+func _make_debug_mesh(mesh: Mesh) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.no_depth_test = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_color = Color(1.0, 0.35, 0.2, 0.22)
+	mi.material_override = mat
+	mi.visible = false
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.top_level = true
+	add_child(mi)
+	return mi
+
+
+func _sync_debug_settings() -> void:
+	show_debug = GameSettings.debug_titan_ai
+	if show_debug:
+		if _debug_label == null:
+			_debug_label = Label3D.new()
+			_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			_debug_label.no_depth_test = true
+			_debug_label.pixel_size = 0.04
+			_debug_label.font_size = 48
+			_debug_label.position = Vector3(0.0, 17.0, 0.0)
+			add_child(_debug_label)
+		_debug_label.visible = true
+	elif _debug_label != null:
+		_debug_label.visible = false
+	if not GameSettings.debug_titan_hitboxes:
+		for mesh in _hit_debug:
+			mesh.visible = false
+		_debug_arc.visible = false
+		_debug_stomp.visible = false
+		_debug_stomp_core.visible = false
+
+
+## Matches the visuals to the real hit tests: hand cylinders, front arc, stomp zone.
+func _update_hit_debug() -> void:
+	var on := GameSettings.debug_titan_hitboxes
+	if _debug_arc != null:
+		_debug_arc.visible = on and state == State.ATTACK
+	if _debug_stomp != null:
+		_debug_stomp.visible = on and state == State.STOMP
+		_debug_stomp_core.visible = _debug_stomp.visible
+	if not on or _hit_debug.is_empty():
+		return
+	var xform := skeleton.global_transform
+	var fraction := _attack_time / maxf(_attack_length, 0.001)
+	var swinging := state == State.ATTACK and fraction >= hit_start_fraction \
+			and fraction <= hit_end_fraction and not _attack_landed
+	for i in mini(_hand_bones.size(), _hit_debug.size()):
+		var bone: int = _hand_bones[i]
+		if bone < 0:
+			continue
+		var mesh := _hit_debug[i]
+		var cyl := mesh.mesh as CylinderMesh
+		cyl.top_radius = hit_radius
+		cyl.bottom_radius = hit_radius
+		cyl.height = hit_vertical_reach * 2.0
+		mesh.global_position = xform * skeleton.get_bone_global_pose(bone).origin
+		mesh.visible = state == State.ATTACK and i == _attack_hand and not _pending_grab
+		_tint(mesh, swinging)
+	if _debug_arc.visible:
+		_draw_arc(swinging)
+	if _debug_stomp.visible:
+		var cyl := _debug_stomp.mesh as CylinderMesh
+		cyl.top_radius = stomp_radius
+		cyl.bottom_radius = stomp_radius
+		cyl.height = stomp_lift_height * 2.0
+		_debug_stomp.global_position = Vector3(_stomp_aim.x, global_position.y, _stomp_aim.z)
+		_tint(_debug_stomp, _stomp_time >= stomp_lift_time + stomp_hold_time)
+		var core := _debug_stomp_core.mesh as CylinderMesh
+		core.top_radius = stomp_direct_radius
+		core.bottom_radius = stomp_direct_radius
+		core.height = stomp_lift_height * 2.0
+		_debug_stomp_core.global_position = _debug_stomp.global_position
+		(_debug_stomp_core.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.0, 0.0, 0.35)
+
+
+func _tint(mesh: MeshInstance3D, active: bool) -> void:
+	var mat := mesh.material_override as StandardMaterial3D
+	mat.albedo_color = Color(1.0, 0.1, 0.05, 0.4) if active else Color(1.0, 0.35, 0.2, 0.15)
+
+
+## Front-only wedge: the swipe arc, or the grab volume when a grab is pending.
+func _draw_arc(active: bool) -> void:
+	var im := _debug_arc.mesh as ImmediateMesh
+	im.clear_surfaces()
+	_debug_arc.global_transform = Transform3D.IDENTITY
+	var color := Color(1.0, 0.1, 0.05, 0.4) if active else Color(1.0, 0.6, 0.2, 0.2)
+	if _pending_grab:
+		var low := global_position.y - 2.0 - 0.9
+		var high := global_position.y + grab_max_height - 0.9
+		color = Color(0.2, 0.6, 1.0, 0.25)
+		_add_fan(im, low, grab_range, grab_half_angle_deg, color)
+		_add_fan(im, high, grab_range, grab_half_angle_deg, color)
+	else:
+		_add_fan(im, global_position.y + 0.1, attack_range, hit_half_angle_deg, color)
+
+
+func _add_fan(im: ImmediateMesh, y: float, radius: float, half_deg: float, color: Color) -> void:
+	var forward := _flat_dir(global_basis.z)
+	var origin := Vector3(global_position.x, y, global_position.z)
+	var half := deg_to_rad(half_deg)
+	const STEPS := 24
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in STEPS:
+		var a0 := -half + 2.0 * half * k / STEPS
+		var a1 := -half + 2.0 * half * (k + 1) / STEPS
+		for v in [Vector3.ZERO, forward.rotated(Vector3.UP, a0) * radius, forward.rotated(Vector3.UP, a1) * radius]:
+			im.surface_set_color(color)
+			im.surface_add_vertex(origin + v)
+	im.surface_end()
 
 
 ## Creates the positional player and loads titan footstep variants.
@@ -802,6 +1151,8 @@ func _die() -> void:
 		_end_grab(false)
 	if _grab_arm.weight > 0.0:
 		_fade_grab_arm()
+	if _leg_ik.weight > 0.0:
+		_fade_leg_ik()
 	if _open_hands.amount > 0.0:
 		_blend_open_hands(0.0)
 	alive = false

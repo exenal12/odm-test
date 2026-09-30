@@ -12,3 +12,5 @@
   - Allows for my agents to better interact with Godot and the project files
 - Cursor Desktop
   - Various models to help plan, build, and debug
+- Codex
+  - GPT 6 Luna/Sol to work with the GDScript

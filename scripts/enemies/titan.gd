@@ -1,5 +1,6 @@
 class_name Titan
 extends CharacterBody3D
+
 ## Titan enemy: state-machine AI with distance-scaled sight and hearing.
 ## Only hits on the nape kill it; body hits are ignored.
 
@@ -8,6 +9,19 @@ signal hit_player(player: CharacterBody3D, damage: float)
 
 enum State { WANDER, INVESTIGATE, ALERT, CHASE, ATTACK, GRAB, STOMP, DEAD }
 
+## Inverted-hull outline drawn as a next pass while the titan is targeted.
+const OUTLINE_SHADER_CODE := """
+shader_type spatial;
+render_mode unshaded, cull_front;
+uniform vec4 outline_color : source_color = vec4(1.0, 0.2, 0.1, 1.0);
+uniform float width = 0.03;
+void vertex() {
+	VERTEX += NORMAL * width;
+}
+void fragment() {
+	ALBEDO = outline_color.rgb;
+}
+"""
 const GrabArm := preload("res://scripts/enemies/titan_grab_arm.gd")
 const OpenHands := preload("res://scripts/enemies/titan_open_hands.gd")
 const LegIK := preload("res://scripts/enemies/titan_leg_ik.gd")
@@ -130,7 +144,7 @@ const SEGMENTS := [
 @export var stomp_camera_shake: float = 0.6
 
 @export_group("Debug")
-@export var show_debug: bool = true
+@export var show_debug: bool = false
 
 @export_group("Death")
 ## Playback speed of the collapse; below 1 so the fall reads at titan scale.
@@ -164,6 +178,8 @@ var _wandering: bool = false
 var _has_target: bool = false
 var _forced_target: CharacterBody3D
 var _forced_until_msec: int = 0
+var _mark: Label3D
+var _outline_material: ShaderMaterial
 var _wait_timer: float = 2.0
 var _state_timer: float = 0.0
 var _cooldown_left: float = 0.0
@@ -176,6 +192,8 @@ var _hit_debug: Array[MeshInstance3D] = []
 var _debug_arc: MeshInstance3D
 var _debug_stomp: MeshInstance3D
 var _debug_stomp_core: MeshInstance3D
+var _debug_nape: MeshInstance3D
+var _debug_nape_arc: MeshInstance3D
 var _pending_grab: bool = false
 var _attack_hand: int = 0
 var _grab_cooldown_left: float = 0.0
@@ -208,6 +226,7 @@ var _grab_side: float = 1.0
 var _arm_reach: float = 1.0
 var _squeeze: float = 0.0
 var _last_hit_damage: float = 20.0
+var _gs: Node
 
 func _ready() -> void:
 	_setup_step_audio()
@@ -233,7 +252,8 @@ func _ready() -> void:
 	_home = global_position
 	last_known = global_position
 	_setup_hit_debug()
-	GameSettings.settings_changed.connect(_sync_debug_settings)
+	_gs = get_node("/root/GameSettings")
+	_gs.settings_changed.connect(_sync_debug_settings)
 	_sync_debug_settings()
 
 
@@ -260,6 +280,10 @@ func _add_segment(from_bone: String, to: Variant, radius: float) -> void:
 
 
 func _process(_delta: float) -> void:
+	if _mark != null and _mark.visible:
+		var cam := get_viewport().get_camera_3d()
+		if cam != null:
+			_mark.pixel_size = clampf(cam.global_position.distance_to(_mark.global_position) * 0.0012, 0.02, 0.5)
 	if _neck_bone < 0:
 		return
 	var neck_pose := skeleton.get_bone_global_pose(_neck_bone)
@@ -325,6 +349,35 @@ func _acquire_player() -> void:
 func distract(decoy: CharacterBody3D, duration: float) -> void:
 	_forced_target = decoy
 	_forced_until_msec = Time.get_ticks_msec() + int(duration * 1000.0)
+	_show_mark(true)
+
+
+func clear_distraction() -> void:
+	_forced_target = null
+	_forced_until_msec = 0
+	_show_mark(false)
+
+
+func _show_mark(on: bool) -> void:
+	if on and _mark == null:
+		_mark = Label3D.new()
+		_mark.text = "[ TARGETED ]"
+		_mark.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_mark.no_depth_test = true
+		_mark.pixel_size = 0.05
+		_mark.font_size = 48
+		_mark.outline_size = 12
+		_mark.modulate = Color(1.0, 0.25, 0.2)
+		_mark.position = Vector3(0.0, 15.0, 0.0)
+		add_child(_mark)
+	if _mark != null:
+		_mark.visible = on
+	if on and _outline_material == null:
+		var shader := Shader.new()
+		shader.code = OUTLINE_SHADER_CODE
+		_outline_material = ShaderMaterial.new()
+		_outline_material.shader = shader
+	_skin_material.next_pass = _outline_material if on else null
 
 
 func _valid_target(node: Node) -> bool:
@@ -337,9 +390,11 @@ func _valid_target(node: Node) -> bool:
 func _select_target() -> void:
 	if state == State.GRAB and _valid_target(target):
 		return
-	if Time.get_ticks_msec() < _forced_until_msec and _valid_target(_forced_target):
-		target = _forced_target
-		return
+	if _forced_until_msec > 0:
+		if Time.get_ticks_msec() < _forced_until_msec and _valid_target(_forced_target):
+			target = _forced_target
+			return
+		clear_distraction()
 	var candidates: Array[CharacterBody3D] = []
 	if _valid_target(player):
 		candidates.append(player)
@@ -929,6 +984,8 @@ func _setup_hit_debug() -> void:
 	_debug_arc = _make_debug_mesh(ImmediateMesh.new())
 	_debug_stomp = _make_debug_mesh(CylinderMesh.new())
 	_debug_stomp_core = _make_debug_mesh(CylinderMesh.new())
+	_debug_nape = _make_debug_mesh(BoxMesh.new())
+	_debug_nape_arc = _make_debug_mesh(ImmediateMesh.new())
 
 
 func _make_debug_mesh(mesh: Mesh) -> MeshInstance3D:
@@ -950,7 +1007,7 @@ func _make_debug_mesh(mesh: Mesh) -> MeshInstance3D:
 
 
 func _sync_debug_settings() -> void:
-	show_debug = GameSettings.debug_titan_ai
+	show_debug = bool(_gs.get("debug_titan_ai"))
 	if show_debug:
 		if _debug_label == null:
 			_debug_label = Label3D.new()
@@ -963,7 +1020,7 @@ func _sync_debug_settings() -> void:
 		_debug_label.visible = true
 	elif _debug_label != null:
 		_debug_label.visible = false
-	if not GameSettings.debug_titan_hitboxes:
+	if not bool(_gs.get("debug_titan_hitboxes")):
 		for mesh in _hit_debug:
 			mesh.visible = false
 		_debug_arc.visible = false
@@ -973,12 +1030,16 @@ func _sync_debug_settings() -> void:
 
 ## Matches the visuals to the real hit tests: hand cylinders, front arc, stomp zone.
 func _update_hit_debug() -> void:
-	var on := GameSettings.debug_titan_hitboxes
+	var on: bool = bool(_gs.get("debug_titan_hitboxes"))
 	if _debug_arc != null:
 		_debug_arc.visible = on and state == State.ATTACK
 	if _debug_stomp != null:
 		_debug_stomp.visible = on and state == State.STOMP
 		_debug_stomp_core.visible = _debug_stomp.visible
+	_debug_nape.visible = on and state != State.DEAD
+	_debug_nape_arc.visible = _debug_nape.visible
+	if _debug_nape.visible:
+		_draw_nape_debug()
 	if not on or _hit_debug.is_empty():
 		return
 	var xform := skeleton.global_transform
@@ -1035,8 +1096,21 @@ func _draw_arc(active: bool) -> void:
 		_add_fan(im, global_position.y + 0.1, attack_range, hit_half_angle_deg, color)
 
 
-func _add_fan(im: ImmediateMesh, y: float, radius: float, half_deg: float, color: Color) -> void:
-	var forward := _flat_dir(global_basis.z)
+## Nape collider box plus the rear wedge an attacker must stand in for it to count.
+func _draw_nape_debug() -> void:
+	var box := _debug_nape.mesh as BoxMesh
+	var shape := nape.get_node("CollisionShape3D").shape as BoxShape3D
+	box.size = shape.size
+	_debug_nape.global_transform = nape.global_transform
+	(_debug_nape.material_override as StandardMaterial3D).albedo_color = Color(0.2, 1.0, 0.3, 0.45)
+	var im := _debug_nape_arc.mesh as ImmediateMesh
+	im.clear_surfaces()
+	_debug_nape_arc.global_transform = Transform3D.IDENTITY
+	_add_fan(im, global_position.y + 0.15, 15.0, nape_rear_angle_deg, Color(0.2, 1.0, 0.3, 0.15), -1.0)
+
+
+func _add_fan(im: ImmediateMesh, y: float, radius: float, half_deg: float, color: Color, facing: float = 1.0) -> void:
+	var forward := _flat_dir(global_basis.z) * facing
 	var origin := Vector3(global_position.x, y, global_position.z)
 	var half := deg_to_rad(half_deg)
 	const STEPS := 24
@@ -1157,6 +1231,7 @@ func _die() -> void:
 		_blend_open_hands(0.0)
 	alive = false
 	state = State.DEAD
+	clear_distraction()
 	body_collider.set_deferred("disabled", true)
 	for seg in _segments:
 		(seg.body as AnimatableBody3D).collision_layer = 0

@@ -190,3 +190,51 @@ I'll block mouse-wheel from changing slider values and forward those scrolls to 
 - Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 tools/export_cursor_transcript.py dcc5fa7d-6212-4ffc-bf23-7c41fba14e49 --title \"Main menu settings page\" 2>&1 | tail -2", "description": "Update chat transcript"}
 
 Mouse wheel over a settings slider now scrolls the list instead of changing the value.
+
+## User
+
+"show titan ai status" should not be on by default
+
+## Assistant
+
+- Tool call: `StrReplace` {"new_string": "## Titan AI status label; off at launch (enable in Settings → Debug).\nvar debug_titan_ai: bool = false\nvar debug_soldier_ai: bool = false\n", "old_string": "## Matches Titan.show_debug default (on at launch).\nvar debug_titan_ai: bool = true\nvar debug_soldier_ai: bool = false\n", ...
+- Tool call: `StrReplace` {"new_string": "@export_group(\"Debug\")\n@export var show_debug: bool = false\n", "old_string": "@export_group(\"Debug\")\n@export var show_debug: bool = true\n", "path": "/home/bazzite/odm-test/scripts/enemies/titan.gd"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 tools/export_cursor_transcript.py dcc5fa7d-6212-4ffc-bf23-7c41fba14e49 --title \"Main menu settings page\" 2>&1 | tail -2", "description": "Update chat transcript"}
+
+Done — titan AI status is off at launch now (and after Reset to default).
+
+## User
+
+the sliders are too close to the scroll bar; add spacing to the left of the scroll ba4r
+
+## Assistant
+
+- Tool call: `Read` {"limit": 40, "offset": 250, "path": "/home/bazzite/odm-test/scripts/ui/main_menu.gd"}
+
+- Tool call: `StrReplace` {"new_string": "\tvar scroll := ScrollContainer.new()\n\tscroll.size_flags_vertical = Control.SIZE_EXPAND_FILL\n\tscroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL\n\tscroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED\n\tbox.add_child(scroll)\n\t_settings_scroll = scroll\n\n\...
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 tools/export_cursor_transcript.py dcc5fa7d-6212-4ffc-bf23-7c41fba14e49 --title \"Main menu settings page\" 2>&1 | tail -2", "description": "Update chat transcript"}
+
+Added 20px of padding to the left of the scrollbar so the sliders aren’t flush against it.
+
+## User
+
+add a volume slider
+
+## Assistant
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/assets/audio/default_bus_layout.tres"}
+- Tool call: `Grep` {"glob": "*.{gd,tscn,tres}", "head_limit": 40, "pattern": "AudioServer|bus_volume|Master|volume_db|set_bus"}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/game/game_settings.gd"}
+- Tool call: `Read` {"limit": 120, "offset": 250, "path": "/home/bazzite/odm-test/scripts/ui/main_menu.gd"}
+
+Adding a Master volume slider to session settings and wiring it to the audio bus.
+- Tool call: `Read` {"limit": 40, "offset": 400, "path": "/home/bazzite/odm-test/scripts/ui/main_menu.gd"}
+
+- Tool call: `Write` {"contents": "extends Node\n## Session-only gameplay and debug options. Never written to disk; closing the game\n## discards changes. Reset restores the snapshot taken when the process launched.\n\nsignal settings_changed\n\n## Master bus volume as a linear 0–1 scale (1 = launch default).\nvar maste...
+- Tool call: `StrReplace` {"new_string": "\t_add_section(list, \"AUDIO\")\n\t_settings_controls[\"master_volume\"] = _add_slider(\n\t\tlist, \"Volume\", 0.0, 100.0, 1.0, \"%.0f%%\",\n\t\tfunc(v: float) -> void:\n\t\t\tGameSettings.master_volume = v / 100.0\n\t\t\tGameSettings.apply_master_volume())\n\n\t_add_section(list, \"...
+- Tool call: `StrReplace` {"new_string": "func _refresh_settings_ui() -> void:\n\tvar snap := GameSettings.snapshot()\n\tfor key in [\"player_max_health\", \"odm_speed_scale\", \"gas_max\", \"gas_boost_drain\",\n\t\t\t\"gas_reel_drain\", \"titan_spawn_rate\", \"soldier_spawn_rate\"]:\n\t\tvar ctrl: Dictionary = _settings_con...
+- Tool call: `CallDynamicTool` {"arguments": {"path": "scripts/game/game_settings.gd"}, "mcpDetails": {"description": "Validate GameSettings volume changes"}, "namespace": "project-0-odm-test-godot-mcp", "toolName": "validate_script"}
+- Tool call: `CallDynamicTool` {"arguments": {"path": "scripts/ui/main_menu.gd"}, "mcpDetails": {"description": "Validate settings volume slider UI"}, "namespace": "project-0-odm-test-godot-mcp", "toolName": "validate_script"}
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test && python3 tools/export_cursor_transcript.py dcc5fa7d-6212-4ffc-bf23-7c41fba14e49 --title \"Main menu settings page\" 2>&1 | tail -2", "description": "Update chat transcript"}
+
+Added a **Volume** slider under an Audio section. It controls the Master bus live (0–100%), stays session-only, and resets with Reset to default / on game close.

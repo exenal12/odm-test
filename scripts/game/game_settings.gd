@@ -4,6 +4,8 @@ extends Node
 
 signal settings_changed
 
+## Master bus volume as a linear 0–1 scale (1 = launch default).
+var master_volume: float = 1.0
 ## Player hit-point cap (matches PlayerHealth default).
 var player_max_health: float = 100.0
 ## Multiplier for ODM reel / boost / grapple speed caps.
@@ -21,8 +23,8 @@ var soldier_spawn_rate: float = 1.0
 
 var debug_sword_hitboxes: bool = false
 var debug_titan_hitboxes: bool = false
-## Matches Titan.show_debug default (on at launch).
-var debug_titan_ai: bool = true
+## Titan AI status label; off at launch (enable in Settings → Debug).
+var debug_titan_ai: bool = false
 var debug_soldier_ai: bool = false
 
 var _defaults: Dictionary = {}
@@ -30,11 +32,14 @@ var _defaults: Dictionary = {}
 
 func _ready() -> void:
 	_defaults = snapshot()
+	settings_changed.connect(apply_master_volume)
+	apply_master_volume()
 
 
 ## Copies every tunable into a dictionary for reset / UI sync.
 func snapshot() -> Dictionary:
 	return {
+		"master_volume": master_volume,
 		"player_max_health": player_max_health,
 		"odm_speed_scale": odm_speed_scale,
 		"gas_max": gas_max,
@@ -51,6 +56,7 @@ func snapshot() -> Dictionary:
 
 ## Restores values from a snapshot dictionary and notifies listeners.
 func apply_snapshot(data: Dictionary, emit_change: bool = true) -> void:
+	master_volume = clampf(float(data.get("master_volume", master_volume)), 0.0, 1.0)
 	player_max_health = float(data.get("player_max_health", player_max_health))
 	odm_speed_scale = float(data.get("odm_speed_scale", odm_speed_scale))
 	gas_max = float(data.get("gas_max", gas_max))
@@ -64,6 +70,18 @@ func apply_snapshot(data: Dictionary, emit_change: bool = true) -> void:
 	debug_soldier_ai = bool(data.get("debug_soldier_ai", debug_soldier_ai))
 	if emit_change:
 		settings_changed.emit()
+	else:
+		apply_master_volume()
+
+
+## Pushes master_volume onto the Master audio bus.
+func apply_master_volume() -> void:
+	var bus := AudioServer.get_bus_index(&"Master")
+	if bus < 0:
+		return
+	var linear := clampf(master_volume, 0.0, 1.0)
+	AudioServer.set_bus_mute(bus, linear <= 0.0001)
+	AudioServer.set_bus_volume_db(bus, linear_to_db(maxf(linear, 0.0001)))
 
 
 ## Restores the launch-time defaults.

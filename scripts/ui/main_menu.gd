@@ -14,16 +14,16 @@ const HOW_TO_PLAY := """Swing through the forest with your ODM gear.
 - Land on supply platforms and press F near a supplier to refill gas.
 - Attack with your blades by clicking. Titans are vulnerable at the back of their neck.
 - Titans can attack you by swatting, stomping, and grabbing, so keep moving.
-- Your health regenerates slowly, so be careful."""
+- Your health doesn't regenerate, so be careful."""
 const CONTROLS := [
 	["W A S D", "Move"],
-	["Mouse", "Look"],
-	["Space", "Jump"],
-	["Left/Right Click", "Swing left/right sword"],
-	["Shift", "Sprint / Gas boost (while hooked)"],
 	["Ctrl", "Crouch / Slide"],
+	["Space", "Jump"],
+	["Mouse", "Look"],
+	["Left/Right Click", "Swing left/right sword"],
+	["Middle mouse", "Target a titan"],
 	["Q/E", "Fire left/right hook"],
-	["E", "Fire right hook"],
+	["Shift", "Sprint / Gas boost (while hooked)"],
 	["R", "Toggle reel in"],
 	["V", "Cycle camera"],
 	["F", "Interact"],
@@ -264,10 +264,22 @@ func _build_settings() -> void:
 	box.add_child(scroll)
 	_settings_scroll = scroll
 
+	var list_pad := MarginContainer.new()
+	list_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list_pad.add_theme_constant_override("margin_right", 20)
+	scroll.add_child(list_pad)
+
 	var list := VBoxContainer.new()
 	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	list.add_theme_constant_override("separation", 10)
-	scroll.add_child(list)
+	list_pad.add_child(list)
+
+	_add_section(list, "AUDIO")
+	_settings_controls["master_volume"] = _add_slider(
+		list, "Volume", 0.0, 100.0, 1.0, "%.0f%%",
+		func(v: float) -> void:
+			GameSettings.master_volume = v / 100.0
+			GameSettings.apply_master_volume())
 
 	_add_section(list, "GAMEPLAY")
 	_settings_controls["player_max_health"] = _add_slider(
@@ -425,6 +437,10 @@ func _refresh_settings_ui() -> void:
 		var slider: HSlider = ctrl["slider"]
 		slider.set_value_no_signal(float(snap[key]))
 		(ctrl["label"] as Label).text = (ctrl["format"] as String) % float(snap[key])
+	var vol: Dictionary = _settings_controls["master_volume"]
+	var vol_pct := float(snap["master_volume"]) * 100.0
+	(vol["slider"] as HSlider).set_value_no_signal(vol_pct)
+	(vol["label"] as Label).text = (vol["format"] as String) % vol_pct
 	for key in ["debug_sword_hitboxes", "debug_titan_hitboxes", "debug_titan_ai", "debug_soldier_ai"]:
 		(_settings_controls[key] as CheckBox).set_pressed_no_signal(bool(snap[key]))
 

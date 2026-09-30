@@ -1,4 +1,4 @@
-# Untitled chat aec55738
+# Gear outfits and world polish
 
 Chat ID: aec55738-e19b-47c4-b888-1a8e58a5740d
 

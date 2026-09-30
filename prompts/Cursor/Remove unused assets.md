@@ -1,4 +1,4 @@
-# Untitled chat 2f47d487
+# Remove unused assets
 
 Chat ID: 2f47d487-fe4a-48b1-b122-9d0cd982c5f8
 

@@ -178,44 +178,38 @@ layout_mode = 2
 mouse_filter = 2
 script = ExtResource("6_minimap")
 
-[node name="Counts" type="HBoxContainer" parent="Root/TopRight"]
+[node name="Counts" type="HBoxContainer" parent="Root/TopRight" unique_id=1491623413]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="AlliesTitle" type="Label" parent="Root/TopRight/Counts"]
+[node name="AlliesTitle" type="Label" parent="Root/TopRight/Counts" unique_id=1809627613]
 layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "ALLIES"
 
-[node name="AlliesCount" type="Label" parent="Root/TopRight/Counts"]
+[node name="AlliesCount" type="Label" parent="Root/TopRight/Counts" unique_id=626661638]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 18
 text = "0"
 
-[node name="Spacer" type="Control" parent="Root/TopRight/Counts"]
+[node name="Spacer" type="Control" parent="Root/TopRight/Counts" unique_id=1431288264]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
 
-[node name="TitansTitle" type="Label" parent="Root/TopRight/Counts"]
+[node name="TitansTitle" type="Label" parent="Root/TopRight/Counts" unique_id=403105691]
 layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "TITANS"
 
-[node name="TitansCount" type="Label" parent="Root/TopRight/Counts"]
+[node name="TitansCount" type="Label" parent="Root/TopRight/Counts" unique_id=2052286624]
 unique_name_in_owner = true
 layout_mode = 2
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.9, 0.15, 0.1, 1)
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 18
@@ -230,32 +224,27 @@ offset_bottom = 132.0
 mouse_filter = 2
 theme_override_constants/separation = 6
 
-[node name="TimeTitle" type="Label" parent="Root/KillRow"]
+[node name="TimeTitle" type="Label" parent="Root/KillRow" unique_id=2040419823]
 layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "TIME SURVIVED"
 
-[node name="TimeValue" type="Label" parent="Root/KillRow"]
+[node name="TimeValue" type="Label" parent="Root/KillRow" unique_id=529868251]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(44, 0)
 layout_mode = 2
-mouse_filter = 2
 theme_override_constants/outline_size = 3
 theme_override_font_sizes/font_size = 18
 text = "0:00"
 
-[node name="Spacer" type="Control" parent="Root/KillRow"]
+[node name="Spacer" type="Control" parent="Root/KillRow" unique_id=8820598]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
 
 [node name="KillTitle" type="Label" parent="Root/KillRow" unique_id=94901212]
 layout_mode = 2
-size_flags_vertical = 4
-mouse_filter = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 12
 text = "TITANS SLAIN"
@@ -350,41 +339,41 @@ theme_override_font_sizes/font_size = 84
 text = "YOU DIED"
 horizontal_alignment = 1
 
-[node name="Stats" type="HBoxContainer" parent="Root/DeathScreen/Center"]
+[node name="Stats" type="HBoxContainer" parent="Root/DeathScreen/Center" unique_id=546474003]
 layout_mode = 2
-alignment = 1
 theme_override_constants/separation = 64
+alignment = 1
 
-[node name="TimeStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats"]
+[node name="TimeStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats" unique_id=1817948711]
 layout_mode = 2
 theme_override_constants/separation = -4
 
-[node name="TimeTitle" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat"]
+[node name="TimeTitle" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat" unique_id=1679970632]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 14
 text = "TIME SURVIVED"
 horizontal_alignment = 1
 
-[node name="DeathTime" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat"]
+[node name="DeathTime" type="Label" parent="Root/DeathScreen/Center/Stats/TimeStat" unique_id=46495212]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 36
 text = "0:00"
 horizontal_alignment = 1
 
-[node name="KillStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats"]
+[node name="KillStat" type="VBoxContainer" parent="Root/DeathScreen/Center/Stats" unique_id=2034055387]
 layout_mode = 2
 theme_override_constants/separation = -4
 
-[node name="KillTitle" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat"]
+[node name="KillTitle" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat" unique_id=1440331375]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.88, 0.84, 0.74, 0.6)
 theme_override_font_sizes/font_size = 14
 text = "TITANS SLAIN"
 horizontal_alignment = 1
 
-[node name="DeathKills" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat"]
+[node name="DeathKills" type="Label" parent="Root/DeathScreen/Center/Stats/KillStat" unique_id=47190176]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.85, 0.2, 0.12, 1)
@@ -413,4 +402,3 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("4_reticle")
-

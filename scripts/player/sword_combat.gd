@@ -34,6 +34,7 @@ var _holding: Array[bool] = [false, false]
 var _hit_targets: Array[Dictionary] = [{}, {}]
 var _grab_struck: Array[bool] = [false, false]
 var _debug_meshes: Array[MeshInstance3D] = []
+var _gs: Node
 
 
 func _ready() -> void:
@@ -46,7 +47,8 @@ func _ready() -> void:
 	left_hitbox.monitoring = false
 	right_hitbox.monitoring = false
 	_setup_debug_meshes()
-	GameSettings.settings_changed.connect(_sync_debug_meshes)
+	_gs = get_node("/root/GameSettings")
+	_gs.settings_changed.connect(_sync_debug_meshes)
 	_sync_debug_meshes()
 
 
@@ -121,7 +123,7 @@ func _setup_debug_meshes() -> void:
 
 
 func _sync_debug_meshes() -> void:
-	var on := GameSettings.debug_sword_hitboxes
+	var on: bool = bool(_gs.get("debug_sword_hitboxes"))
 	for mesh in _debug_meshes:
 		if mesh != null:
 			mesh.visible = on
@@ -129,7 +131,7 @@ func _sync_debug_meshes() -> void:
 
 
 func _update_debug_mesh_colors() -> void:
-	if not GameSettings.debug_sword_hitboxes:
+	if not bool(_gs.get("debug_sword_hitboxes")):
 		return
 	for side in 2:
 		var mesh := _debug_meshes[side] if side < _debug_meshes.size() else null

@@ -43,11 +43,13 @@ extends Node3D
 ## Spacing between starting soldiers on the player's platform.
 @export var starting_soldier_spacing: float = 1.4
 ## Seconds between spawn attempts at the start of a run.
-@export var soldier_spawn_interval_start: float = 55.0
+@export var soldier_spawn_interval_start: float = 30.0
 ## Ceiling for the interval as soldier spawns become rarer.
-@export var soldier_spawn_interval_max: float = 140.0
+@export var soldier_spawn_interval_max: float = 75.0
 ## Minutes until the soldier interval reaches its ceiling.
 @export var soldier_spawn_rate_ramp_minutes: float = 10.0
+## If no soldiers are alive this long, force-spawn one (bypasses ratio / visibility).
+@export var soldier_empty_respawn_seconds: float = 10.0
 ## Max living soldiers = floor(living_titans * soldier_ratio_num / soldier_ratio_den).
 @export_range(1, 10) var soldier_ratio_num: int = 2
 @export_range(1, 10) var soldier_ratio_den: int = 3
@@ -76,13 +78,16 @@ var _player: CharacterBody3D
 var _elapsed: float = 0.0
 var _titan_timer: float = 0.0
 var _soldier_timer: float = 0.0
+var _empty_soldier_timer: float = 0.0
 var _start_supplier: GasSupplier
 var _rng := RandomNumberGenerator.new()
+var _gs: Node
 
 
 func _ready() -> void:
 	_rng.randomize()
-	GameSettings.settings_changed.connect(_on_settings_changed)
+	_gs = get_node("/root/GameSettings")
+	_gs.settings_changed.connect(_on_settings_changed)
 	_setup.call_deferred()
 
 
@@ -105,6 +110,17 @@ func _physics_process(delta: float) -> void:
 			_titan_timer = _titan_spawn_interval()
 		elif _titan_timer <= 0.0:
 			_titan_timer = 1.5
+	if _alive_soldiers() == 0:
+		_empty_soldier_timer += delta
+		if _empty_soldier_timer >= soldier_empty_respawn_seconds:
+			if _try_spawn_soldier(true):
+				_empty_soldier_timer = 0.0
+				_soldier_timer = _soldier_spawn_interval()
+			else:
+				# Retry soon if platforms aren't ready yet.
+				_empty_soldier_timer = soldier_empty_respawn_seconds - 1.0
+	else:
+		_empty_soldier_timer = 0.0
 	if _soldier_timer <= 0.0:
 		if _try_spawn_soldier():
 			_soldier_timer = _soldier_spawn_interval()
@@ -196,12 +212,14 @@ func _try_spawn_titan(force_visible: bool = false) -> bool:
 	return true
 
 
-func _try_spawn_soldier() -> bool:
+func _try_spawn_soldier(force: bool = false) -> bool:
 	if soldier_scene == null:
 		return false
-	if _alive_soldiers() >= _max_soldiers_for_titans():
+	if not force and _alive_soldiers() >= _max_soldiers_for_titans():
 		return false
 	var suppliers := _unseen_suppliers()
+	if suppliers.is_empty() and force:
+		suppliers = _gas_suppliers()
 	if suppliers.is_empty():
 		return false
 	var supplier: GasSupplier = suppliers[_rng.randi_range(0, suppliers.size() - 1)]
@@ -315,14 +333,14 @@ func _titan_spawn_interval() -> float:
 	var t := 0.0 if titan_spawn_rate_ramp_minutes <= 0.0 \
 		else clampf(_elapsed / (titan_spawn_rate_ramp_minutes * 60.0), 0.0, 1.0)
 	var base := lerpf(titan_spawn_interval_start, titan_spawn_interval_min, t)
-	return base / maxf(0.05, GameSettings.titan_spawn_rate)
+	return base / maxf(0.05, float(_gs.get("titan_spawn_rate")))
 
 
 func _soldier_spawn_interval() -> float:
 	var t := 0.0 if soldier_spawn_rate_ramp_minutes <= 0.0 \
 		else clampf(_elapsed / (soldier_spawn_rate_ramp_minutes * 60.0), 0.0, 1.0)
 	var base := lerpf(soldier_spawn_interval_start, soldier_spawn_interval_max, t)
-	return base / maxf(0.05, GameSettings.soldier_spawn_rate)
+	return base / maxf(0.05, float(_gs.get("soldier_spawn_rate")))
 
 
 func _apply_titan_speeds() -> void:

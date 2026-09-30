@@ -1,4 +1,4 @@
-# Untitled chat 38f3ccab
+# Titan attack hitbox facing
 
 Chat ID: 38f3ccab-0693-4fde-9b0b-0f477b98b1c1
 
@@ -85,3 +85,34 @@ I added both zones to the titan hitbox overlay in `scripts/enemies/titan.gd`. I 
 - **Stomp full-damage core:** a solid red cylinder of radius `stomp_direct_radius` now sits inside the wider stomp cylinder. It has the same height as the outer one.
 
 Checking the visibility logic and early return placement looks fine, the grab wedge only shows during the attack state, and the hand cylinder stays hidden when a grab is pending. The vertex color setup for the fan also works correctly with the albedo, so this part is complete.
+
+## User
+
+when "titan hitboxes" is enabled, show the nape hitbox as well
+
+## Assistant
+
+- Tool call: `Grep` {"pattern": "Nape|nape", "path": "/home/bazzite/odm-test/scenes/enemies/titan.tscn", "output_mode": "content", "-n": true, "-C": 2}
+- Tool call: `Grep` {"pattern": "nape", "path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "output_mode": "content", "-n": true}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 262, "limit": 16}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 1160, "limit": 12}
+
+I'm adding a debug box mesh as a child of the nape node so it visually follows its position, and drawing a rear fan shape in green to represent the valid rear-attack angle when that debug mode is enabled.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test/scripts/enemies && grep -n \"_add_fan\\|_attacker_behind\\|func _update_hit_debug\\|_debug_stomp_core = _make\\|_debug_arc = _make\" titan.gd && sed -n 1225,1245p titan.gd"}
+
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 1026, "limit": 12}
+- Tool call: `Read` {"path": "/home/bazzite/odm-test/scripts/enemies/titan.gd", "offset": 1176, "limit": 12}
+
+I'll position the debug nape box mesh at the nape's global transform as a top-level instance, and for the rear arc fan I'll add a direction parameter to the fan-creation function so it can face backward, using a radius of 12.
+- Tool call: `Shell` {"command": "cd /home/bazzite/odm-test/scripts/enemies && python3 - <<'EOF'\ns=open('titan.gd').read()\ns=s.replace(\"var _debug_stomp_core: MeshInstance3D\\n\",\"var _debug_stomp_core: MeshInstance3D\\nvar _debug_nape: MeshInstance3D\\nvar _debug_nape_arc: MeshInstance3D\\n\",1)\ns=s.replace(\"\t_d...
+
+The nape hitbox now shows when "Show titan attack hitboxes" is on. I haven't run it in the game or compiled the script.
+
+The overlay draws two things:
+- **Nape box:** a green box matching the `Nape` collider's size. It follows the nape as the titan moves and hides once the titan is dead.
+- **Rear wedge:** a faint green fan on the ground behind the titan, using `nape_rear_angle_deg`. A hit on the nape only counts when the attacker stands inside it. The wedge is drawn out to 15 units, which is only for display.
+
+The changes are in `scripts/enemies/titan.gd`.
+
+The debug visibility update runs on every skeleton update, so toggling the setting off correctly hides the nape indicator. The nape rear angle of 100 degrees matches the intended half-angle for the fan, so this looks correct.

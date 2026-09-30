@@ -244,6 +244,17 @@ func get_anchor() -> Vector3:
 	return Vector3.ZERO
 
 
+## AI: body the current latch is stuck in (left preferred), or null for scenery.
+func get_anchored_body() -> Node3D:
+	if left_attached():
+		var body := _left_hook.get_anchored_body()
+		if body != null:
+			return body
+	if right_attached():
+		return _right_hook.get_anchored_body()
+	return null
+
+
 func _input(event: InputEvent) -> void:
 	if ai_controlled:
 		return

@@ -39,6 +39,13 @@ TITLES = {
     "f0846041-2997-4922-bc03-394cc943fb49": "Game title ideas",
     "dcc5fa7d-6212-4ffc-bf23-7c41fba14e49": "Main menu settings page",
     "d26a744c-6edf-4e9e-af56-0c0752c8d4ec": "Airborne movement control",
+    "8a37df5e-f557-459e-ac28-8b6d8d3385ea": "Soldier spawn and retreat",
+    "2f47d487-fe4a-48b1-b122-9d0cd982c5f8": "Remove unused assets",
+    "38f3ccab-0693-4fde-9b0b-0f477b98b1c1": "Titan attack hitbox facing",
+    "4c54ad76-dfca-4af4-8e33-2b756eb7c08f": "Soldier distract command",
+    "6c08476a-31cb-49f3-a4f8-3072ad0fd9da": "Chat log titles",
+    "aec55738-e19b-47c4-b888-1a8e58a5740d": "Gear outfits and world polish",
+    "ca5caa3f-cf35-4ae5-80e1-1a9cf7f75a2c": "Main menu",
 }
 
 

@@ -9,8 +9,8 @@
 [ext_resource type="AnimationLibrary" uid="uid://cy1gf11a4d152" path="res://scenes/player/animations/humanf_native.tres" id="9_clips"]
 [ext_resource type="PackedScene" path="res://scenes/props/odm_gear_visual.tscn" id="10_visual"]
 [ext_resource type="Material" path="res://scenes/player/animations/humanf_palette.tres" id="11_palette"]
-[ext_resource type="Script" path="res://scripts/player/character_appearance.gd" id="12_appearance"]
-[ext_resource type="PackedScene" path="res://scenes/player/player_audio.tscn" id="13_audio"]
+[ext_resource type="Script" uid="uid://pbxamq4joqw0" path="res://scripts/player/character_appearance.gd" id="12_appearance"]
+[ext_resource type="PackedScene" uid="uid://bodvla7hglonk" path="res://scenes/player/player_audio.tscn" id="13_audio"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_soldier"]
 radius = 0.34814453
@@ -21,9 +21,11 @@ collision_layer = 0
 script = ExtResource("2_soldier")
 run_speed = 4.0
 hook_retry = 5.0
-rear_angle_deg = 40.0
+rear_angle_deg = 60.0
 resume_gas_fraction = 1.0
-strike_chance = 0.097
+reaction_time = 0.33
+flee_height_gain = 20.0
+strike_chance = 0.5
 strike_cooldown = 5.0
 
 [node name="Model" parent="." unique_id=782518840 instance=ExtResource("1_model")]
@@ -71,9 +73,9 @@ ai_controlled = true
 [node name="PlayerAnimation" type="Node" parent="." unique_id=196682099]
 script = ExtResource("8_animation")
 
-[node name="PlayerAudio" parent="." instance=ExtResource("13_audio")]
+[node name="PlayerAudio" parent="." unique_id=1228131050 instance=ExtResource("13_audio")]
 
-[node name="Appearance" type="Node" parent="."]
+[node name="Appearance" type="Node" parent="." unique_id=1853378026]
 script = ExtResource("12_appearance")
 random_hair = true
 

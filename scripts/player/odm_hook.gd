@@ -93,6 +93,11 @@ func is_attached() -> bool:
 	return state == State.ATTACHED
 
 
+## The body the hook is stuck in, or null for static scenery.
+func get_anchored_body() -> Node3D:
+	return _anchor_body if is_attached() and is_instance_valid(_anchor_body) else null
+
+
 ## Raycasts along the supplied aim direction and latches on a hit. A miss still
 ## throws the anchor out visually before reeling it back.
 func fire(

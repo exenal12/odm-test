@@ -43,6 +43,10 @@ signal died(soldier: Soldier)
 @export var traverse_release_distance: float = 5.0
 ## Longest time a traversal hook is held.
 @export var traverse_max_hold: float = 3.0
+## Minimum seconds between traversal swings.
+@export var traverse_cooldown: float = 1.25
+## Anchors higher than this above the soldier are ignored.
+@export var traverse_max_height: float = 10.0
 
 @export_group("Gas")
 ## Head for a gas station at or below this fraction of full gas.
@@ -52,13 +56,19 @@ signal died(soldier: Soldier)
 
 @export_group("Tactics")
 ## Seconds spent in position before the first hook is fired.
-@export var reaction_time: float = 1.5
+@export var reaction_time: float = 0.5
 ## Only strike while the titan is focused on something other than this soldier.
-@export var require_distraction: bool = true
+@export var require_distraction: bool = false
 ## Seconds hooked onto a titan without landing a strike before giving up and re-flanking.
-@export var max_hook_time: float = 5.0
+@export var max_hook_time: float = 5
 ## Most soldiers allowed hooked onto one titan at once. 0 means unlimited.
 @export var max_attackers: int = 1
+## Ground distance to the titan under which a front-hooked or targeted soldier bails out.
+@export var danger_distance: float = 14.0
+## While airborne, anchors are still sought when the goal is at least this far.
+@export var air_traverse_distance: float = 6.0
+## Extra height to seek while fleeing so the next approach starts above the titan.
+@export var flee_height_gain: float = 12.0
 
 @export_group("Attack")
 @export var strike_range: float = 5.0
@@ -68,13 +78,26 @@ signal died(soldier: Soldier)
 ## Delay from swing start to the hit landing.
 @export var strike_hit_delay: float = 0.25
 
-## Aim offsets from the nape tried in turn when a hook misses or latches poorly.
+## Aim offsets from the nape in titan-local space: X right, Y up, Z toward its back.
 const AIM_OFFSETS: Array[Vector3] = [
-	Vector3.ZERO, Vector3(0.0, -2.5, 0.0), Vector3(0.0, -5.0, 0.0), Vector3(0.0, 1.5, 0.0),
+	Vector3.ZERO, Vector3(0.0, -2.5, 0.5), Vector3(0.0, -5.0, 1.0), Vector3(0.0, 1.5, 0.5),
+	Vector3(2.5, -3.0, 1.0), Vector3(-2.5, -3.0, 1.0), Vector3(0.0, -6.0, 1.5),
+	Vector3(2.0, -8.5, 1.5), Vector3(-2.0, -8.5, 1.5), Vector3(0.0, -11.0, 2.0),
 ]
 const EYE_HEIGHT := 1.4
 ## Longest time spent retreating after a missed strike before trying again.
 const REFLANK_TIMEOUT := 12.0
+## Instant push away from the titan when a strike misses.
+const MISS_RETREAT_SPEED := 18.0
+const MISS_RETREAT_UP := 10.0
+## Look-ahead distance for trunk avoidance, and stuck detection timings.
+const AVOID_DISTANCE := 3.5
+const STUCK_TIME := 1.0
+const UNSTICK_DURATION := 1.2
+## Start circling to the titan's back inside flank_radius times this.
+const FLANK_START_FACTOR := 1.3
+## How long to circle to a new angle after trees block every shot.
+const BLOCKED_SIDESTEP_TIME := 2.0
 
 @onready var odm: ODMController = $ODMController
 @onready var odm_gear: Node3D = $ODMGear
@@ -102,12 +125,18 @@ var _trav_time: float = 0.0
 var _trav_fired: bool = false
 var _reaction_left: float = -1.0
 var _reflank_left: float = 0.0
+var _stuck_time: float = 0.0
+var _unstick_left: float = 0.0
+var _unstick_sign: float = 1.0
+var _blocked_left: float = 0.0
+var _sidestep: float = 1.0
 var _climbing: bool = false
 var _climb_time: float = 0.0
 var _climb_retry: float = 0.0
 var _was_on_floor: bool = true
 var _air_time: float = 0.0
 var _debug_label: Label3D
+var _gs: Node
 
 
 func _ready() -> void:
@@ -123,7 +152,8 @@ func _ready() -> void:
 	_agent.target_desired_distance = 2.0
 	add_child(_agent)
 	_hook_timer = randf() * hook_retry
-	GameSettings.settings_changed.connect(_sync_debug_settings)
+	_gs = get_node("/root/GameSettings")
+	_gs.settings_changed.connect(_sync_debug_settings)
 	_sync_debug_settings()
 
 
@@ -183,9 +213,15 @@ func _physics_process(delta: float) -> void:
 		walk_dir = _ground_direction()
 	else:
 		odm.ai_steer = Vector3.ZERO
+		odm.ai_boost = false
 		if odm.is_hooked():
 			odm.release_hooks()
 	_update_strike(delta)
+
+	if _unstick_left > 0.0:
+		_unstick_left -= delta
+		walk_dir = walk_dir.rotated(Vector3.UP, _unstick_sign * 1.2)
+	walk_dir = _steer_clear(walk_dir)
 
 	if odm.is_active():
 		odm.physics_tick(delta)
@@ -194,6 +230,7 @@ func _physics_process(delta: float) -> void:
 		_ground_move(walk_dir, delta)
 		odm.physics_tick(delta)
 	move_and_slide()
+	_update_stuck(walk_dir, delta)
 	_update_animation()
 	_update_audio(delta)
 	_update_debug_label()
@@ -218,6 +255,8 @@ func _pick_target() -> void:
 			_reaction_left = -1.0
 		target = _forced_titan
 		return
+	_forced_until_msec = 0
+	_forced_titan = null
 	var best: Titan
 	var best_dist := INF
 	for node in get_tree().get_nodes_in_group("titan"):
@@ -244,13 +283,29 @@ func _think(nape: Vector3, delta: float) -> void:
 	var dist := _eye().distance_to(nape)
 	var hooked := odm.is_hooked()
 	_update_reflank(delta)
+	_blocked_left = maxf(0.0, _blocked_left - delta)
+
+	# Don't abort a committed titan latch just because it looked at us.
+	if _reflank_left <= 0.0 and not (hooked and _anchor_on_titan()) \
+			and _is_threatened(hooked):
+		_miss()
+		return
 
 	if _traversing:
 		var can_attack := _behind_titan() and dist <= hook_range and _reflank_left <= 0.0
 		if can_attack:
+			# Wind up mid-swing; only let go once ready to fire.
+			if _reaction_left < 0.0:
+				_reaction_left = reaction_time
+			_reaction_left -= delta
+			if _reaction_left > 0.0:
+				_update_traversal(delta)
+				return
 			odm.release_hooks()
 			_traversing = false
 			hooked = false
+			# Fire this frame; don't let the ground path re-arm windup.
+			_reaction_left = 0.0
 		else:
 			_update_traversal(delta)
 			return
@@ -258,8 +313,9 @@ func _think(nape: Vector3, delta: float) -> void:
 	if _check_pending:
 		_check_pending = false
 		if hooked:
-			var anchor_gap := odm.get_anchor().distance_to(nape)
-			if anchor_gap > dist - 5.0 and anchor_gap > strike_range + 2.0:
+			# Keep any latch on the titan; only reject scenery. Re-hook nearer the
+			# nape later via reattach_range once they reel in.
+			if not _anchor_on_titan():
 				odm.request_release(true)
 				odm.request_release(false)
 				_aim_attempt += 1
@@ -273,32 +329,152 @@ func _think(nape: Vector3, delta: float) -> void:
 		if _hook_hold >= max_hook_time:
 			_miss()
 			return
+		if _anchor_on_titan():
+			# Face / front latch: get out immediately instead of hovering.
+			if not _behind_titan():
+				_miss()
+				return
+			# Titan staring us down with distraction required — abort the climb.
+			if require_distraction and target.target == self:
+				_miss()
+				return
+			if dist <= strike_range:
+				_begin_strike()
+			elif dist <= reattach_range and _hook_timer <= 0.0 \
+					and odm.get_anchor().distance_to(nape) > strike_range + 2.0:
+				if _shot_clear(_aim_world(nape, 0)):
+					_fire_at(nape, 0)
+			var flat_titan := nape - global_position
+			flat_titan.y = 0.0
+			odm.ai_steer = flat_titan
+			# Normal reel only while attacking — save gas for escapes.
+			odm.ai_boost = false
+			return
 	else:
 		_hook_hold = 0.0
 
 	var flat := nape - global_position
 	flat.y = 0.0
+	if _reflank_left > 0.0:
+		var away := global_position - target.global_position
+		away.y = 0.0
+		if away.length_squared() < 0.01:
+			away = -flat
+		# Steer out and up so the escape gains height on the titan.
+		odm.ai_steer = away.normalized() + Vector3.UP * 0.85
+		odm.ai_boost = true
+		_reaction_left = -1.0
+		if _traversing:
+			_update_traversal(delta)
+		else:
+			_try_traverse(true)
+		return
 	odm.ai_steer = flat
+	odm.ai_boost = false
 
 	var behind := _behind_titan()
 	if hooked:
-		if dist <= strike_range:
-			_begin_strike()
-		elif behind and dist <= reattach_range and _hook_timer <= 0.0 \
-				and odm.get_anchor().distance_to(nape) > strike_range + 2.0:
-			_fire_at(nape, 0)
+		# Non-titan latch left over — drop it and escape.
+		_miss()
 		return
 
-	var can_hook := behind and dist <= hook_range and _reflank_left <= 0.0 and _slot_free()
+	var can_hook := behind and dist <= hook_range and _slot_free()
 	if not can_hook:
 		_reaction_left = -1.0
 		_try_traverse()
 		return
+	# Already in attack position: stay committed. Sidestep if blocked, don't traverse.
 	if _reaction_left < 0.0:
 		_reaction_left = reaction_time
 	_reaction_left -= delta
 	if _reaction_left <= 0.0 and _hook_timer <= 0.0:
-		_fire_at(nape, _aim_attempt)
+		var pick := _pick_clear_aim(nape)
+		if pick < 0:
+			if _blocked_left <= 0.0:
+				_sidestep = -_sidestep
+			_blocked_left = BLOCKED_SIDESTEP_TIME
+			_hook_timer = hook_retry
+			return
+		_fire_at(nape, pick)
+
+
+## True when the current ODM latch is on the targeted titan (any body segment).
+func _anchor_on_titan() -> bool:
+	if not odm.is_hooked() or not _target_valid():
+		return false
+	var node := odm.get_anchored_body() as Node
+	if node == null:
+		# Fallback: treat a latch near the titan as on-target.
+		return odm.get_anchor().distance_to(target.global_position) < 22.0
+	for _i in 4:
+		if node == null:
+			return false
+		if node == target or node is Titan:
+			return true
+		node = node.get_parent()
+	return false
+
+
+## First aim offset with an unobstructed line to the titan, or -1 if trees block them all.
+func _pick_clear_aim(nape: Vector3) -> int:
+	for i in AIM_OFFSETS.size():
+		var idx := (_aim_attempt + i) % AIM_OFFSETS.size()
+		if _shot_clear(_aim_world(nape, idx)):
+			return idx
+	return -1
+
+
+## Nape aim point from a titan-local offset (Z is toward the titan's back).
+func _aim_world(nape: Vector3, attempt: int) -> Vector3:
+	var local := AIM_OFFSETS[attempt % AIM_OFFSETS.size()]
+	var basis := target.global_basis
+	var right := Vector3(basis.x.x, 0.0, basis.x.z)
+	var back := Vector3(-basis.z.x, 0.0, -basis.z.z)
+	if right.length_squared() < 0.01:
+		right = Vector3.RIGHT
+	else:
+		right = right.normalized()
+	if back.length_squared() < 0.01:
+		back = Vector3.FORWARD
+	else:
+		back = back.normalized()
+	return nape + right * local.x + Vector3.UP * local.y + back * local.z
+
+
+## True when a hook fired at aim_point would latch onto the titan rather than scenery.
+func _shot_clear(aim_point: Vector3) -> bool:
+	var origin := _eye()
+	var dir := aim_point - origin
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + dir + dir.normalized() * 2.0)
+	query.collision_mask = odm.grapple_collision_mask
+	query.exclude = [get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return false
+	var node := hit.collider as Node
+	for _i in 3:
+		if node == null:
+			return false
+		if node is Titan:
+			return true
+		node = node.get_parent()
+	return false
+
+
+## True when too close to a titan that is hunting us, or hooked onto its front.
+func _is_threatened(hooked: bool) -> bool:
+	var offset := global_position - target.global_position
+	offset.y = 0.0
+	if offset.length() > danger_distance:
+		return false
+	if target.target == self:
+		return true
+	return hooked and not _behind_titan()
+
+
+## Minimum goal distance for starting or keeping a traversal hook; lower in the air.
+func _traverse_threshold() -> float:
+	return traverse_distance if is_on_floor() else minf(traverse_distance, air_traverse_distance)
 
 
 ## Switches into refuel mode when gas runs low, and back out once topped up.
@@ -308,6 +484,7 @@ func _update_gas_state() -> void:
 		if fraction <= low_gas_fraction and _nearest_station() != null:
 			_refueling = true
 			odm.release_hooks()
+			odm.ai_boost = false
 			_traversing = false
 			_check_pending = false
 			_hit_timer = -1.0
@@ -419,17 +596,19 @@ func _deck_walk(station: Node3D) -> Vector3:
 
 
 ## Starts a hook-and-reel hop toward the goal when it is far away.
-func _try_traverse() -> void:
+## Pass fleeing to keep swinging even when the retreat goal is nearby.
+func _try_traverse(fleeing: bool = false) -> void:
 	if not use_traversal or _hook_timer > 0.0:
 		return
 	var goal := _goal_point()
 	var flat := goal - global_position
 	flat.y = 0.0
-	if flat.length() <= traverse_distance:
+	var threshold := air_traverse_distance if fleeing else _traverse_threshold()
+	if flat.length() <= threshold:
 		return
-	var anchor := _find_anchor(goal)
+	var anchor := _find_anchor(goal, fleeing)
 	if not anchor.is_finite():
-		_hook_timer = hook_retry
+		_hook_timer = hook_retry if fleeing else traverse_cooldown
 		return
 	var origin := _eye()
 	odm.set_aim(origin, anchor - origin)
@@ -438,33 +617,38 @@ func _try_traverse() -> void:
 	_traversing = true
 	_trav_time = 0.0
 	_trav_fired = true
-	_hook_timer = hook_retry
+	_hook_timer = hook_retry if fleeing else traverse_cooldown
 
 
 ## Follows a traversal hook and lets go once close to the anchor or held too long.
 func _update_traversal(delta: float) -> void:
 	_trav_time += delta
 	var goal := _goal_point()
-	var flat := goal - global_position
+	var to_goal := goal - global_position
+	var flat := to_goal
 	flat.y = 0.0
-	odm.ai_steer = flat
+	# Flee swings steer toward the elevated escape point, not just flat ground.
+	odm.ai_steer = to_goal if _reflank_left > 0.0 else flat
+	odm.ai_boost = _reflank_left > 0.0
+	var flee_cd := hook_retry if _reflank_left > 0.0 else traverse_cooldown
 	if _trav_fired:
 		_trav_fired = false
 		if not odm.is_hooked():
 			_traversing = false
-			_hook_timer = hook_retry
+			_hook_timer = flee_cd
 		return
+	var release_gap := air_traverse_distance if _reflank_left > 0.0 else _traverse_threshold()
 	var done := not odm.is_hooked() or _trav_time >= traverse_max_hold \
 			or _eye().distance_to(odm.get_anchor()) <= traverse_release_distance \
-			or flat.length() <= traverse_distance or odm.get_gas() <= 0.0
+			or flat.length() <= release_gap or odm.get_gas() <= 0.0
 	if done:
 		odm.release_hooks()
 		_traversing = false
-		_hook_timer = 0.1
+		_hook_timer = flee_cd
 
 
 ## Fans rays up and toward the goal; returns the grapple point making the most progress.
-func _find_anchor(goal: Vector3) -> Vector3:
+func _find_anchor(goal: Vector3, fleeing: bool = false) -> Vector3:
 	var origin := _eye()
 	var base := goal - origin
 	base.y = 0.0
@@ -474,11 +658,15 @@ func _find_anchor(goal: Vector3) -> Vector3:
 	var current_gap := Vector2(goal.x - origin.x, goal.z - origin.z).length()
 	var space := get_world_3d().direct_space_state
 	var best := Vector3.INF
-	var best_progress := traverse_min_progress
-	for yaw in [-0.6, -0.3, 0.0, 0.3, 0.6]:
+	var best_score := -INF
+	var max_y := global_position.y + (flee_height_gain + 8.0 if fleeing else traverse_max_height)
+	var pitches: Array = [0.3, 0.55, 0.85, 1.1] if fleeing else [0.12, 0.28, 0.45]
+	for yaw in [-0.6, -0.3, 0.0, 0.3, 0.6, -1.0, 1.0, -1.4, 1.4]:
 		var flat_dir := base.rotated(Vector3.UP, yaw)
 		var pitch_axis := flat_dir.cross(Vector3.UP).normalized()
-		for pitch in [0.25, 0.55, 0.9]:
+		if pitch_axis.length_squared() < 0.01:
+			continue
+		for pitch in pitches:
 			var dir := flat_dir.rotated(pitch_axis, pitch)
 			var query := PhysicsRayQueryParameters3D.create(origin, origin + dir * traverse_range)
 			query.collision_mask = odm.grapple_collision_mask
@@ -487,15 +675,36 @@ func _find_anchor(goal: Vector3) -> Vector3:
 			if hit.is_empty():
 				continue
 			var collider := hit.collider as Node
-			if collider != null and collider.get_parent() is Titan:
+			var on_titan := false
+			var walk := collider
+			for _i in 3:
+				if walk == null:
+					break
+				if walk is Titan:
+					on_titan = true
+					break
+				walk = walk.get_parent()
+			# Flee may climb the titan; approach swings stay on scenery only.
+			if on_titan and not fleeing:
 				continue
 			var point: Vector3 = hit.position
-			if point.y < global_position.y + 2.0:
+			if point.y < global_position.y + 1.5 or point.y > max_y:
+				continue
+			if on_titan and point.y < global_position.y + 3.0:
 				continue
 			var gap := Vector2(goal.x - point.x, goal.z - point.z).length()
 			var progress := current_gap - gap
-			if progress > best_progress:
-				best_progress = progress
+			if not fleeing and progress < traverse_min_progress:
+				continue
+			if fleeing and progress < traverse_min_progress * 0.35 and not on_titan:
+				continue
+			var height := point.y - global_position.y
+			# Flee rewards height; normal traversal prefers staying lower.
+			var score := progress + height * (0.9 if fleeing else -0.35)
+			if on_titan:
+				score += height * 0.5
+			if score > best_score:
+				best_score = score
 				best = point
 	return best
 
@@ -508,9 +717,24 @@ func _goal_point() -> Vector3:
 	if _reflank_left > 0.0:
 		var away := global_position - goal
 		away.y = 0.0
-		goal += (away.normalized() if away.length_squared() > 0.01 else Vector3.BACK) * flank_radius
+		var dir := away.normalized() if away.length_squared() > 0.01 else Vector3.BACK
+		goal += dir * flank_radius
+		# Climb while escaping so the next pass starts near nape height.
+		var nape_y := target.nape.global_position.y if target.nape != null \
+			else target.global_position.y + 14.0
+		goal.y = clampf(nape_y, global_position.y + 3.0, global_position.y + flee_height_gain)
+		return goal
+	elif _blocked_left > 0.0:
+		var offset := global_position - goal
+		offset.y = 0.0
+		if offset.length_squared() > 0.01:
+			goal += offset.rotated(Vector3.UP, _sidestep * 0.9)
 	elif not _behind_titan():
-		goal = _flank_point()
+		var gap := global_position - goal
+		gap.y = 0.0
+		# Close the distance first; only circle to its back once nearby.
+		if gap.length() <= flank_radius * FLANK_START_FACTOR:
+			goal = _flank_point()
 	return goal
 
 
@@ -543,9 +767,25 @@ func _miss() -> void:
 	odm.release_hooks()
 	_hook_hold = 0.0
 	_check_pending = false
+	_traversing = false
+	_hit_timer = -1.0
+	_blocked_left = 0.0
 	_reflank_left = REFLANK_TIMEOUT
 	_reaction_left = -1.0
-	_hook_timer = hook_retry
+	_hook_timer = 0.0
+	if _target_valid():
+		var away := global_position - target.global_position
+		away.y = 0.0
+		if away.length_squared() < 0.01:
+			away = -global_basis.z
+			away.y = 0.0
+		away = away.normalized()
+		velocity = away * MISS_RETREAT_SPEED + Vector3.UP * MISS_RETREAT_UP
+		odm.ai_steer = away
+		odm.ai_boost = true
+		_try_traverse(true)
+	else:
+		odm.ai_boost = false
 
 
 ## True when the soldier is inside the rear cone of the titan.
@@ -559,7 +799,7 @@ func _behind_titan() -> bool:
 
 
 func _fire_at(nape: Vector3, attempt: int) -> void:
-	var aim_point := nape + AIM_OFFSETS[attempt % AIM_OFFSETS.size()]
+	var aim_point := _aim_world(nape, attempt)
 	var origin := _eye()
 	odm.set_aim(origin, aim_point - origin)
 	odm.request_fire(true)
@@ -595,11 +835,11 @@ func _update_strike(delta: float) -> void:
 		return
 	var victim := target
 	victim.on_sword_hit(victim.nape, strike_damage, global_position)
-	if victim.alive:
-		_miss()
+	if not victim.alive:
+		odm.release_hooks()
+		titan_killed.emit(victim)
 		return
-	odm.release_hooks()
-	titan_killed.emit(victim)
+	# Keep the latch and swing again after cooldown; don't full-retreat on a hit.
 
 
 ## Horizontal direction toward the titan, following the navmesh when it exists.
@@ -608,7 +848,8 @@ func _ground_direction() -> Vector3:
 	var retreating := _reflank_left > 0.0 or _refueling
 	var to_goal := goal - global_position
 	to_goal.y = 0.0
-	if not retreating and _behind_titan() and to_goal.length() < min_ground_distance:
+	if not retreating and _blocked_left <= 0.0 and _behind_titan() \
+			and to_goal.length() < min_ground_distance:
 		return Vector3.ZERO
 	if to_goal.length() < 2.0:
 		return Vector3.ZERO
@@ -617,9 +858,46 @@ func _ground_direction() -> Vector3:
 		_agent.target_position = goal
 		dir = _agent.get_next_path_position() - global_position
 		dir.y = 0.0
-		if dir.length_squared() < 0.01:
+		# A path that ends far from the goal is useless; head straight for it instead.
+		var path_end := _agent.get_final_position()
+		path_end.y = goal.y
+		if dir.length_squared() < 0.01 or path_end.distance_to(goal) > 15.0:
 			dir = to_goal
 	return dir.normalized()
+
+
+## Bends the walk direction around trunks and rocks detected just ahead.
+func _steer_clear(dir: Vector3) -> Vector3:
+	if dir.length_squared() < 0.01 or odm.is_active():
+		return dir
+	if _refueling and Vector2(_refuel_goal.x - global_position.x,
+			_refuel_goal.z - global_position.z).length() < 8.0:
+		return dir
+	var space := get_world_3d().direct_space_state
+	var origin := global_position + Vector3.UP * 1.0
+	for angle in [0.0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5]:
+		var probe := dir.rotated(Vector3.UP, angle * _unstick_sign)
+		var query := PhysicsRayQueryParameters3D.create(origin, origin + probe * AVOID_DISTANCE)
+		query.collision_mask = 1
+		query.exclude = [get_rid()]
+		if space.intersect_ray(query).is_empty():
+			return probe
+	return dir
+
+
+## Detects walking into something without moving and triggers a sidestep.
+func _update_stuck(walk_dir: Vector3, delta: float) -> void:
+	var wants_move := walk_dir.length_squared() > 0.01 and is_on_floor() and not odm.is_hooked()
+	if wants_move and Vector2(velocity.x, velocity.z).length() < 0.6:
+		_stuck_time += delta
+	else:
+		_stuck_time = 0.0
+	if _stuck_time >= STUCK_TIME:
+		_stuck_time = 0.0
+		_unstick_left = UNSTICK_DURATION
+		_unstick_sign = -_unstick_sign
+		_hook_timer = 0.0
+		_climb_retry = 0.0
 
 
 ## A point on a circle around the titan, a bit further toward its back than we are.
@@ -679,7 +957,7 @@ func _update_animation() -> void:
 
 
 func _sync_debug_settings() -> void:
-	if GameSettings.debug_soldier_ai:
+	if _gs != null and bool(_gs.get("debug_soldier_ai")):
 		if _debug_label == null:
 			_debug_label = Label3D.new()
 			_debug_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
